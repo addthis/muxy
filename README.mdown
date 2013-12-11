@@ -1,0 +1,46 @@
+# muxy
+
+## Multiplexing files for filesystems inside your files
+
+`muxy` is a java library for multiplexing many files inside a
+directory with a smaller number of actual files.  This is useful if
+your file system does not like 10s of thousands of files inside a
+single directory, or to make things easier on other programs (such as
+rsync).
+
+
+## Building
+
+`muxy` uses [Apache Maven](http://maven.apache.org/) which it is beyond
+the scope to detail.  The super simple quick start is:
+
+`mvn test`
+
+## Use
+
+```xml
+<dependency>
+  <groupId>com.addthis</groupId>
+  <artifactId>muxy</artifactId>
+  <version>latest-and-greatest</version>
+</dependency>
+```
+
+You can either install locally, or releases will eventually make their
+way to maven central.
+
+## Administrative
+
+### Versioning
+
+It's x.y.z where:
+
+ * x: something major happened
+ * y: next release
+ * z: bug fix only
+
+### License
+
+muxy is released under the Apache License Version 2.0.  See
+[Apache](http://www.apache.org/licenses/LICENSE-2.0) or the LICENSE
+for details.
