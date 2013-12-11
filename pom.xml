@@ -142,9 +142,9 @@
   </reporting>
 
   <scm>
-    <connection>scm:git:http://git.clearspring.local/muxy.git</connection>
-    <developerConnection>scm:git:http://git.clearspring.local/muxy.git</developerConnection>
-    <url>scm:git:http://git.clearspring.local/muxy.git</url>
+    <connection>scm:git:git@github.com:addthis/muxy.git</connection>
+    <developerConnection>scm:git:git@github.com:addthis/muxy.git</developerConnection>
+    <url>https://github.com/addthis/muxy</url>
     <tag>HEAD</tag>
   </scm>
 
