@@ -373,11 +373,11 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
     /* wrapper for writing into chunks */
     protected final class StreamOut {
 
-        protected final MuxStream meta;
-        protected ByteArrayOutputStream output;
-        protected final AtomicInteger writers = new AtomicInteger(0);
+        final MuxStream meta;
+        ByteArrayOutputStream output;
+        final AtomicInteger writers = new AtomicInteger(0);
 
-        protected StreamOut(final MuxStream meta) {
+        StreamOut(final MuxStream meta) {
             this.meta = meta;
             this.output = new ByteArrayOutputStream();
         }
@@ -387,7 +387,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
             return new StreamOutWriter(this);
         }
 
-        protected void write(final byte b[], final int off, final int len) throws IOException {
+        void write(final byte b[], final int off, final int len) throws IOException {
             // burp out a block if we hit a threshold
             if (openWriteBytes.get() >= streamDirectoryConfig.maxBlockSize) {
                 synchronized (openStreamWrites) {
@@ -403,7 +403,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
             }
         }
 
-        protected void close() throws IOException {
+        void close() throws IOException {
             synchronized (openStreamWrites) {
                 publishEvent(MuxyStreamEvent.STREAM_CLOSE, meta);
                 if (writers.decrementAndGet() == 0) {
@@ -429,9 +429,9 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
     /* for tracking # of writers per output stream */
     protected final class StreamOutWriter extends OutputStream {
 
-        protected StreamOut out;
+        StreamOut out;
 
-        protected StreamOutWriter(StreamOut out) {
+        StreamOutWriter(StreamOut out) {
             this.out = out;
         }
 
