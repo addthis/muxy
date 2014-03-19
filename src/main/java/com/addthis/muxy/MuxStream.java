@@ -22,7 +22,7 @@ import com.addthis.basis.util.Bytes;
 /* meta data for start/end of a stream */
 public class MuxStream {
 
-    protected int streamID;
+    protected final int streamID;
     // so we can jump to the beginning of a stream on read
     protected int startFile;
     protected int startFileBlockOffset;
@@ -34,12 +34,13 @@ public class MuxStream {
 
     protected ReadMuxStreamDirectory streamDir;
 
-    public MuxStream(ReadMuxStreamDirectory streamDir) {
+    public MuxStream(ReadMuxStreamDirectory streamDir, int streamID) {
         this.streamDir = streamDir;
+        this.streamID = streamID;
     }
 
     public MuxStream(ReadMuxStreamDirectory streamDir, final InputStream in) throws IOException {
-        this(streamDir);
+        this.streamDir = streamDir;
         streamID = Bytes.readInt(in);
         startFile = Bytes.readInt(in);
         startFileBlockOffset = Bytes.readInt(in);
