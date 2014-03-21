@@ -13,7 +13,6 @@
  */
 package com.addthis.muxy;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 
@@ -26,7 +25,6 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,6 +32,10 @@ import java.nio.file.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufOutputStream;
+import io.netty.buffer.CompositeByteBuf;
+import io.netty.buffer.PooledByteBufAllocator;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.nio.file.StandardOpenOption.APPEND;
 import static java.nio.file.StandardOpenOption.CREATE;
@@ -170,13 +172,13 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
     }
 
     public MuxStream createStream() throws IOException {
-        MuxStream meta = new MuxStream(this);
         synchronized (openStreamWrites) {
-            meta.streamID = reserveStreamID();
+            int newMetaId = reserveStreamID();
+            MuxStream meta = new MuxStream(this, newMetaId);
             streamDirectoryMap.put(meta.streamID, meta);
             publishEvent(MuxyStreamEvent.STREAM_CREATE, meta);
+            return meta;
         }
-        return meta;
     }
 
     @Override
@@ -266,15 +268,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
         synchronized (openStreamWrites) {
             for (StreamOut out : openStreamWrites.values()) {
                 synchronized (out) {
-                    ByteArrayOutputStream buffer = out.output;
-                    ByteArrayOutputStream trimBuffer = new ByteArrayOutputStream(buffer.size());
-                    try {
-                        buffer.writeTo(trimBuffer);
-                    } catch (IOException e) {
-                        // byte array output streams should not throw these
-                        log.error("impossible exception", e);
-                    }
-                    out.output = trimBuffer;
+                    out.outputBuffer.discardSomeReadBytes();
                 }
             }
         }
@@ -284,15 +278,16 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
     private final class TempData {
 
         private final MuxStream meta;
-        private final byte[] data;
+        private final CompositeByteBuf data;
+        private final StreamOut stream;
+        private final int snapshotLength;
 
         TempData(StreamOut stream) {
+            this.stream = stream;
             meta = stream.meta;
-            synchronized (stream) {
-                data = stream.output.toByteArray();
-                openWriteBytes.addAndGet(-data.length);
-                stream.output.reset();
-            }
+            data = stream.outputBuffer;
+            snapshotLength = data.readableBytes();
+            openWriteBytes.addAndGet(-snapshotLength);
         }
     }
 
@@ -305,60 +300,72 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                 return 0;
             }
             List<TempData> streamsWithData = new ArrayList<>(openStreamWrites.size());
-            for (StreamOut out : pendingStreamCloses.values()) {
-                if (openStreamWrites.get(out.meta.streamID) != out && out.output.size() > 0) {
-                    streamsWithData.add(new TempData(out));
+            for (StreamOut out : openStreamWrites.values()) {
+                synchronized (out) {
+                    StreamOut pendingOut = pendingStreamCloses.get(out.meta.streamID);
+                    if (pendingOut != null) {
+                        out.outputBuffer.readBytes(pendingOut.outputBuffer);
+                        out.outputBuffer.discardReadBytes();
+                    } else if (out.output.buffer().readableBytes() > 0) {
+                        streamsWithData.add(new TempData(out));
+                        out.outputBuffer.retain();
+                    }
                 }
+            }
+            for (StreamOut out : pendingStreamCloses.values()) {        // guarded by openStreamWrites
+                streamsWithData.add(new TempData(out));
             }
             pendingStreamCloses.clear();
-            for (StreamOut out : openStreamWrites.values()) {
-                if (out.output.size() > 0) {
-                    streamsWithData.add(new TempData(out));
-                }
-            }
-            if (streamsWithData.size() == 0) {
+            if (streamsWithData.isEmpty()) {
                 return 0;
             }
             for (TempData td : streamsWithData) {
-                writtenBytes += td.data.length;
+                writtenBytes += td.snapshotLength;
             }
             int streams = streamsWithData.size();
             publishEvent(MuxyStreamEvent.BLOCK_FILE_WRITE, streams);
             int currentFileOffset = (int) openWriteFile.size();
-            ArrayList<ByteBuffer> srcs = new ArrayList<>(1 + streams);
             /* write out IDs in this block */
-            ByteBuffer metaBuffer = ByteBuffer.allocate(2 + 4 * streams + 4 + 8 * streams);
-            srcs.add(metaBuffer);
-            metaBuffer.putShort((short) streams);
+            ByteBuf metaBuffer = PooledByteBufAllocator.DEFAULT.directBuffer(2 + 4 * streams + 4 + 8 * streams);
+            metaBuffer.writeShort(streams);
             int bodyOutputSize = 0;
             for (TempData out : streamsWithData) {
-                metaBuffer.putInt(out.meta.streamID);
+                metaBuffer.writeInt(out.meta.streamID);
                 /* (4) chunk body offset (4) chunk length (n) chunk bytes */
-                bodyOutputSize += 8 + out.data.length;
+                bodyOutputSize += 8 + out.snapshotLength;
             }
             /* write remainder size for rest of block data so that readers can skip if desired ID isn't present */
-            metaBuffer.putInt(bodyOutputSize);
+            metaBuffer.writeInt(bodyOutputSize);
             /* write offsets and lengths for each stream id */
             int bodyOffset = streamsWithData.size() * 8;
             for (TempData out : streamsWithData) {
-                metaBuffer.putInt(bodyOffset); //TODO - reconsider how frequently this shortcut is placed on disk
-                metaBuffer.putInt(out.data.length);
-                bodyOffset += out.data.length;
+                metaBuffer.writeInt(bodyOffset); //TODO - reconsider how frequently this shortcut is placed on disk
+                metaBuffer.writeInt(out.snapshotLength);
+                bodyOffset += out.snapshotLength;
             }
-            metaBuffer.flip();
+            while (metaBuffer.readableBytes() > 0) {
+                metaBuffer.readBytes(openWriteFile, metaBuffer.readableBytes());
+            }
+            metaBuffer.release();
             /* write bytes for each stream id */
             for (TempData out : streamsWithData) {
-                srcs.add(ByteBuffer.wrap(out.data));
-                out.meta.endFile = streamDirectoryConfig.getCurrentFile();
-                out.meta.endFileBlockOffset = currentFileOffset;
-                if (out.meta.startFile == 0) {
-                    out.meta.startFile = streamDirectoryConfig.getCurrentFile();
-                    out.meta.startFileBlockOffset = currentFileOffset;
+                synchronized (out.stream) {     // need less confusing variable names for concurrency
+                    int toWrite = out.snapshotLength;
+                    while (toWrite > 0) {
+                        int numBytesRead = out.data.readBytes(openWriteFile, toWrite);
+                        assert numBytesRead > 0;
+                        toWrite -= numBytesRead;
+                    }
+                    out.meta.endFile = streamDirectoryConfig.getCurrentFile();
+                    out.meta.endFileBlockOffset = currentFileOffset;
+                    if (out.meta.startFile == 0) {
+                        out.meta.startFile = streamDirectoryConfig.getCurrentFile();
+                        out.meta.startFileBlockOffset = currentFileOffset;
+                    }
+                    if (!out.data.release()) {      // release the pending writes that did not get an extra retain
+                        out.data.discardReadBytes();
+                    }
                 }
-            }
-            ByteBuffer[] srcsArray = srcs.toArray(new ByteBuffer[srcs.size()]);
-            while (openWriteFile.write(srcsArray) > 0) {
-                ;
             }
             /* check for rolling current file on size threshold */
             if (openWriteFile.size() > streamDirectoryConfig.maxFileSize) {
@@ -370,16 +377,29 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
         return writtenBytes;
     }
 
+    private void maybeWriteBlock() throws IOException {
+        // burp out a block if we hit a threshold
+        if (openWriteBytes.get() >= streamDirectoryConfig.maxBlockSize) {
+            synchronized (openStreamWrites) {
+                if (openWriteBytes.get() >= streamDirectoryConfig.maxBlockSize) {
+                    writeStreamsToBlock();
+                }
+            }
+        }
+    }
+
     /* wrapper for writing into chunks */
     protected final class StreamOut {
 
-        protected final MuxStream meta;
-        protected ByteArrayOutputStream output;
-        protected final AtomicInteger writers = new AtomicInteger(0);
+        final MuxStream meta;
+        final AtomicInteger writers = new AtomicInteger(0);
+        final ByteBufOutputStream output;
+        private final CompositeByteBuf outputBuffer;
 
-        protected StreamOut(final MuxStream meta) {
+        StreamOut(final MuxStream meta) {
             this.meta = meta;
-            this.output = new ByteArrayOutputStream();
+            this.outputBuffer = PooledByteBufAllocator.DEFAULT.compositeBuffer();
+            this.output = new ByteBufOutputStream(outputBuffer);
         }
 
         public OutputStream getWriter() {
@@ -387,15 +407,17 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
             return new StreamOutWriter(this);
         }
 
-        protected void write(final byte b[], final int off, final int len) throws IOException {
-            // burp out a block if we hit a threshold
-            if (openWriteBytes.get() >= streamDirectoryConfig.maxBlockSize) {
-                synchronized (openStreamWrites) {
-                    if (openWriteBytes.get() >= streamDirectoryConfig.maxBlockSize) {
-                        writeStreamsToBlock();
-                    }
-                }
+        void write(int b) throws IOException {
+            maybeWriteBlock();
+            synchronized (this) {
+                output.write(b);
+                openWriteBytes.addAndGet(1);
+                meta.bytes += 1;
             }
+        }
+
+        void write(final byte b[], final int off, final int len) throws IOException {
+            maybeWriteBlock();
             synchronized (this) {
                 output.write(b, off, len);
                 openWriteBytes.addAndGet(len);
@@ -403,50 +425,43 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
             }
         }
 
-        protected void close() throws IOException {
+        void close() {
+            // no one is writing a new block and no one is getting a new writer
             synchronized (openStreamWrites) {
                 publishEvent(MuxyStreamEvent.STREAM_CLOSE, meta);
-                if (writers.decrementAndGet() == 0) {
+                if (writers.decrementAndGet() == 0) {       // there are no other valid writers nor will be
                     publishEvent(MuxyStreamEvent.STREAM_CLOSED_ALL, meta);
                     openStreamWrites.remove(meta.streamID);
-                    if (openStreamWrites.size() == 0) {
+                    if (openStreamWrites.isEmpty()) {
                         closeTime.set(System.currentTimeMillis());
                         publishEvent(MuxyStreamEvent.CLOSED_ALL_STREAM_WRITERS, meta);
                     }
                     StreamOut existingPend = pendingStreamCloses.get(meta.streamID);
-                    if (existingPend != null && existingPend != this) {
-                        synchronized (this) {
-                            output.writeTo(existingPend.output);
-                        }
-                    } else {
+                    if ((existingPend != null) && (existingPend != this)) {     // should never be this?
+                        outputBuffer.readBytes(existingPend.outputBuffer);
+                        outputBuffer.release();
+                    } else if (outputBuffer.readableBytes() > 0) {
                         pendingStreamCloses.put(meta.streamID, this);
+                    } else {
+                        outputBuffer.release();
                     }
                 }
             }
         }
     }
 
-    /* for tracking # of writers per output stream */
+    /* for tracking # of writers per output stream and enforcing close calls */
     protected final class StreamOutWriter extends OutputStream {
 
-        protected StreamOut out;
+        StreamOut out;
 
-        protected StreamOutWriter(StreamOut out) {
+        StreamOutWriter(StreamOut out) {
             this.out = out;
         }
 
         @Override
-        protected void finalize() {
-            try {
-                close();
-            } catch (Exception ex) {
-                ex.printStackTrace();
-            }
-        }
-
-        @Override
         public void write(int arg0) throws IOException {
-            write(new byte[]{(byte) arg0}, 0, 1);
+            out.write(arg0);
         }
 
         @Override
