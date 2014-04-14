@@ -13,9 +13,18 @@
  */
 package com.addthis.muxy;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufOutputStream;
+import io.netty.buffer.CompositeByteBuf;
+import io.netty.buffer.PooledByteBufAllocator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.io.OutputStream;
-
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -25,22 +34,8 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-import java.nio.channels.FileChannel;
-import java.nio.file.Files;
-import java.nio.file.Path;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufOutputStream;
-import io.netty.buffer.CompositeByteBuf;
-import io.netty.buffer.PooledByteBufAllocator;
-import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
-import static java.nio.file.StandardOpenOption.APPEND;
-import static java.nio.file.StandardOpenOption.CREATE;
-import static java.nio.file.StandardOpenOption.READ;
-import static java.nio.file.StandardOpenOption.WRITE;
+import static java.nio.file.StandardCopyOption.*;
+import static java.nio.file.StandardOpenOption.*;
 
 /**
  * stream multiplexer. allows for a large number of append-only streams
@@ -268,7 +263,14 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
         synchronized (openStreamWrites) {
             for (StreamOut out : openStreamWrites.values()) {
                 synchronized (out) {
-                    out.outputBuffer.discardSomeReadBytes();
+                    if (out.outputBuffer.readableBytes() == 0) {
+                        out.outputBuffer.capacity(0);
+                    } else {
+                        out.outputBuffer.discardReadBytes();
+                        if (out.outputBuffer instanceof CompositeByteBuf) {
+                            ((CompositeByteBuf) out.outputBuffer).consolidate();
+                        }
+                    }
                 }
             }
         }
@@ -278,7 +280,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
     private final class TempData {
 
         private final MuxStream meta;
-        private final CompositeByteBuf data;
+        private final ByteBuf data;
         private final StreamOut stream;
         private final int snapshotLength;
 
@@ -304,8 +306,9 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                 synchronized (out) {
                     StreamOut pendingOut = pendingStreamCloses.get(out.meta.streamID);
                     if (pendingOut != null) {
-                        out.outputBuffer.readBytes(pendingOut.outputBuffer);
-                        out.outputBuffer.discardReadBytes();
+                        pendingOut.outputBuffer.writeBytes(out.outputBuffer);
+                        assert out.outputBuffer.readableBytes() == 0;
+                        out.outputBuffer.discardSomeReadBytes();
                     } else if (out.output.buffer().readableBytes() > 0) {
                         streamsWithData.add(new TempData(out));
                         out.outputBuffer.retain();
@@ -363,7 +366,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                         out.meta.startFileBlockOffset = currentFileOffset;
                     }
                     if (!out.data.release()) {      // release the pending writes that did not get an extra retain
-                        out.data.discardReadBytes();
+                        out.data.discardSomeReadBytes();
                     }
                 }
             }
@@ -394,11 +397,11 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
         final MuxStream meta;
         final AtomicInteger writers = new AtomicInteger(0);
         final ByteBufOutputStream output;
-        private final CompositeByteBuf outputBuffer;
+        private final ByteBuf outputBuffer;
 
         StreamOut(final MuxStream meta) {
             this.meta = meta;
-            this.outputBuffer = PooledByteBufAllocator.DEFAULT.compositeBuffer();
+            this.outputBuffer = PooledByteBufAllocator.DEFAULT.ioBuffer(0);
             this.output = new ByteBufOutputStream(outputBuffer);
         }
 
@@ -410,6 +413,9 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
         void write(int b) throws IOException {
             maybeWriteBlock();
             synchronized (this) {
+                if (outputBuffer.capacity() == 0) {
+                    outputBuffer.ensureWritable(65536);
+                }
                 output.write(b);
                 openWriteBytes.addAndGet(1);
                 meta.bytes += 1;
@@ -419,6 +425,9 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
         void write(final byte b[], final int off, final int len) throws IOException {
             maybeWriteBlock();
             synchronized (this) {
+                if (outputBuffer.capacity() == 0) {
+                    outputBuffer.ensureWritable(65536);
+                }
                 output.write(b, off, len);
                 openWriteBytes.addAndGet(len);
                 meta.bytes += len;
@@ -438,7 +447,8 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                     }
                     StreamOut existingPend = pendingStreamCloses.get(meta.streamID);
                     if ((existingPend != null) && (existingPend != this)) {     // should never be this?
-                        outputBuffer.readBytes(existingPend.outputBuffer);
+                        existingPend.outputBuffer.writeBytes(outputBuffer);
+                        assert outputBuffer.readableBytes() == 0;
                         outputBuffer.release();
                     } else if (outputBuffer.readableBytes() > 0) {
                         pendingStreamCloses.put(meta.streamID, this);
