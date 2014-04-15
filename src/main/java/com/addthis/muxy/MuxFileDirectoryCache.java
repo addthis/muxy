@@ -13,21 +13,23 @@
  */
 package com.addthis.muxy;
 
+import com.addthis.basis.util.JitterClock;
+import com.addthis.basis.util.Parameter;
+import com.google.common.util.concurrent.MoreExecutors;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.File;
 import java.io.IOException;
-
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import java.nio.file.Path;
-
-import com.addthis.basis.util.JitterClock;
-import com.addthis.basis.util.Parameter;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Manages MultiplexFileManager lifecycle by using locks to enforce single
@@ -37,94 +39,91 @@ public class MuxFileDirectoryCache {
 
     private static final Logger log = LoggerFactory.getLogger(MuxFileDirectoryCache.class);
 
-    static int cacheTimer = Parameter.intValue("muxy.cache.timer", 1000);
-    static int cacheDirMax = Parameter.intValue("muxy.cache.dir.max", 5);
-    static int cacheFileMax = Parameter.intValue("muxy.cache.file.max", 100000);
-    static int cacheStreamMax = Parameter.intValue("muxy.cache.stream.max", cacheFileMax);
-    static int cacheBytesMax = Parameter.intValue("muxy.cache.bytes.max", MuxDirectory.DEFAULT_BLOCK_SIZE * 3);
-    static int writeCacheDirLinger = Parameter.intValue("muxy.cache.dir.lingerWrite", 60000);
+    static final int CACHE_TIMER = Parameter.intValue("muxy.cache.timer", 1000);
+    static final int CACHE_DIR_MAX = Parameter.intValue("muxy.cache.dir.max", 5);
+    static final int CACHE_FILE_MAX = Parameter.intValue("muxy.cache.file.max", 100000);
+    static final int CACHE_STREAM_MAX = Parameter.intValue("muxy.cache.stream.max", CACHE_FILE_MAX);
+    static final int CACHE_BYTES_MAX = Parameter.intValue("muxy.cache.bytes.max", MuxDirectory.DEFAULT_BLOCK_SIZE * 3);
+    static final int WRITE_CACHE_DIR_LINGER = Parameter.intValue("muxy.cache.dir.lingerWrite", 60000);
 
-    private static final Thread flusher = new Thread() {
-        {
-            setName("MutiplexedFileServer Cache Flusher");
-            setDaemon(true);
-            start();
-        }
+    private static final ScheduledExecutorService writableDirectoryCacheEvictor = MoreExecutors
+            .getExitingScheduledExecutorService(new ScheduledThreadPoolExecutor(1,
+                    new ThreadFactoryBuilder().setNameFormat("muxyDirectoryCacheEvictor=%d").build()));
 
-        public void run() {
-            while (true) {
-                try {
-                    sleep(cacheTimer);
-                } catch (Exception ex) {
-                    ex.printStackTrace();
-                    return;
+    static {
+        writableDirectoryCacheEvictor.scheduleAtFixedRate(new Runnable() {
+            @Override
+            public void run() {
+                doEviction();
+            }
+        }, CACHE_TIMER, CACHE_TIMER, TimeUnit.SECONDS);
+    }
+
+    private static void doEviction() {
+        synchronized (cache) {
+            TrackedMultiplexFileManager tmfm[] = cache.values().toArray(new TrackedMultiplexFileManager[cache.size()]);
+            Arrays.sort(tmfm, new Comparator<TrackedMultiplexFileManager>() {
+                @Override
+                public int compare(TrackedMultiplexFileManager o1, TrackedMultiplexFileManager o2) {
+                    return (int) (o1.releaseTime - o2.releaseTime);
                 }
-                synchronized (cache) {
-                    TrackedMultiplexFileManager tmfm[] = cache.values().toArray(new TrackedMultiplexFileManager[cache.size()]);
-                    Arrays.sort(tmfm, new Comparator<TrackedMultiplexFileManager>() {
-                        @Override
-                        public int compare(TrackedMultiplexFileManager o1, TrackedMultiplexFileManager o2) {
-                            return (int) (o1.releaseTime - o2.releaseTime);
-                        }
-                    });
-                    long cachedStreams = getCacheStreamSize();
-                    long cachedBytes = getCacheByteSize();
-                    for (TrackedMultiplexFileManager mfm : tmfm) {
-                        long currentBytes = mfm.writeStreamMux.openWriteBytes.get();
-                        if ((cache.size() > cacheDirMax || cachedStreams > cacheStreamMax)
-                            && mfm.checkRelease() && mfm.waitForWriteClosure(0)) {
-                            cache.remove(mfm.getDirectory());
-                            cachedStreams -= mfm.writeStreamMux.size();
-                            cacheEvictions.incrementAndGet();
-                            if (log.isDebugEnabled()) {
-                                log.debug("flush.ok " + mfm.getDirectory() + " files=" + mfm.getFileCount() + " complete=" + mfm.isWritingComplete());
-                            }
-                            cachedBytes -= currentBytes; //not as accurate as the return from wSTB but fine
-                        } else {
-                            if (cachedBytes > cacheBytesMax && currentBytes != 0 && currentBytes == mfm.prevBytes) {
-                                try {
-                                    cachedBytes -= mfm.writeStreamMux.writeStreamsToBlock();
-                                } catch (IOException ex) {
-                                    log.error("IOException while calling write streams to block", ex);
-                                }
-                                mfm.prevBytes = 0; //perhaps not true but fine
-                            } else if (currentBytes == 0 && mfm.prevBytes == 0) {
-                                mfm.writeStreamMux.trimOutputBuffers();
-                            } else {
-                                mfm.prevBytes = currentBytes;
-                            }
-                            if (log.isDebugEnabled()) {
-                                log.debug("flush.skip " + mfm.getDirectory() + " files=" + mfm.getFileCount() + " complete=" + mfm.isWritingComplete());
-                            }
-                        }
+            });
+            long cachedStreams = getCacheStreamSize();
+            long cachedBytes = getCacheByteSize();
+            for (TrackedMultiplexFileManager mfm : tmfm) {
+                long currentBytes = mfm.writeStreamMux.openWriteBytes.get();
+                if ((cache.size() > CACHE_DIR_MAX || cachedStreams > CACHE_STREAM_MAX)
+                        && mfm.checkRelease() && mfm.waitForWriteClosure(0)) {
+                    cache.remove(mfm.getDirectory());
+                    cachedStreams -= mfm.writeStreamMux.size();
+                    cacheEvictions.incrementAndGet();
+                    if (log.isDebugEnabled()) {
+                        log.debug("flush.ok " + mfm.getDirectory() + " files=" + mfm.getFileCount() + " complete=" + mfm.isWritingComplete());
                     }
-                    if (cachedBytes > cacheBytesMax) //if we are still over the max, then ignore the equality heuristic
-                    {
-                        tmfm = cache.values().toArray(new TrackedMultiplexFileManager[cache.size()]);
-                        Arrays.sort(tmfm, new Comparator<TrackedMultiplexFileManager>() //sort largest first
-                        {
-                            @Override
-                            public int compare(TrackedMultiplexFileManager o1, TrackedMultiplexFileManager o2) {
-                                return (int) (o2.prevBytes - o1.prevBytes); //reversed
-                            }
-                        });
-                        for (TrackedMultiplexFileManager mfm : tmfm) {
-                            if (cachedBytes > cacheBytesMax) {
-                                try {
-                                    cachedBytes -= mfm.writeStreamMux.writeStreamsToBlock();
-                                } catch (IOException ex) {
-                                    log.error("IOException while calling write streams to block", ex);
-                                }
-                                mfm.prevBytes = 0; //perhaps not true but fine
-                            } else {
-                                break;
-                            }
+                    cachedBytes -= currentBytes; //not as accurate as the return from wSTB but fine
+                } else {
+                    if (cachedBytes > CACHE_BYTES_MAX && currentBytes != 0 && currentBytes == mfm.prevBytes) {
+                        try {
+                            cachedBytes -= mfm.writeStreamMux.writeStreamsToBlock();
+                        } catch (IOException ex) {
+                            log.error("IOException while calling write streams to block", ex);
                         }
+                        mfm.prevBytes = 0; //perhaps not true but fine
+                    } else if (currentBytes == 0 && mfm.prevBytes == 0) {
+                        mfm.writeStreamMux.trimOutputBuffers();
+                    } else {
+                        mfm.prevBytes = currentBytes;
+                    }
+                    if (log.isDebugEnabled()) {
+                        log.debug("flush.skip " + mfm.getDirectory() + " files=" + mfm.getFileCount() + " complete=" + mfm.isWritingComplete());
+                    }
+                }
+            }
+            if (cachedBytes > CACHE_BYTES_MAX) //if we are still over the max, then ignore the equality heuristic
+            {
+                tmfm = cache.values().toArray(new TrackedMultiplexFileManager[cache.size()]);
+                Arrays.sort(tmfm, new Comparator<TrackedMultiplexFileManager>() //sort largest first
+                {
+                    @Override
+                    public int compare(TrackedMultiplexFileManager o1, TrackedMultiplexFileManager o2) {
+                        return (int) (o2.prevBytes - o1.prevBytes); //reversed
+                    }
+                });
+                for (TrackedMultiplexFileManager mfm : tmfm) {
+                    if (cachedBytes > CACHE_BYTES_MAX) {
+                        try {
+                            cachedBytes -= mfm.writeStreamMux.writeStreamsToBlock();
+                        } catch (IOException ex) {
+                            log.error("IOException while calling write streams to block", ex);
+                        }
+                        mfm.prevBytes = 0; //perhaps not true but fine
+                    } else {
+                        break;
                     }
                 }
             }
         }
-    };
+    }
 
     public static boolean tryEvict(MuxFileDirectory muxDir) {
         synchronized (cache) {
@@ -215,7 +214,7 @@ public class MuxFileDirectoryCache {
                 mfm = new TrackedMultiplexFileManager(realPath, new TrackedFileEventListener());
                 cache.put(realPath, mfm);
             }
-            mfm.releaseAfter(writeCacheDirLinger);
+            mfm.releaseAfter(WRITE_CACHE_DIR_LINGER);
             return mfm;
         }
     }

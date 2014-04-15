@@ -49,10 +49,10 @@ public class TestMultiplexedFileServer {
         MuxFileDirectory.EXIT_CLOSURE_TIMEOUT = 500;
         MuxFileDirectory.EXIT_CLOSURE_TIMEOUT_FORCE = true;
         MuxFileDirectory.WRITE_CLOSE_GRACE_TIME = 100;
-        MuxFileDirectoryCache.cacheTimer = 10;
-        MuxFileDirectoryCache.cacheDirMax = 10;
-        MuxFileDirectoryCache.cacheStreamMax = 11000;
-        MuxFileDirectoryCache.writeCacheDirLinger = 10;
+        MuxFileDirectoryCache.CACHE_TIMER = 10;
+        MuxFileDirectoryCache.CACHE_DIR_MAX = 10;
+        MuxFileDirectoryCache.CACHE_STREAM_MAX = 11000;
+        MuxFileDirectoryCache.WRITE_CACHE_DIR_LINGER = 10;
 
         final int dirCount = 1000;
         final int fileCountPerDir = 5;
