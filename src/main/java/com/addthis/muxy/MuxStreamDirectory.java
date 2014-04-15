@@ -48,6 +48,11 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
     private static final Logger log = LoggerFactory.getLogger(MuxStreamDirectory.class);
 
     private static final boolean DELETE_FREED_FILES = Boolean.getBoolean("muxy.delete.freed");
+    // 511 is just under 512, and thus will avoid a netty bug causing double allocation for the default size.
+    // I tried to make the default even just slightly higher previously, but discovered that the worst case
+    // current downstream use has far more tiny directories and streams than I imagined. So for now at least
+    // we will use a small default and let the more common large-buffer case pay the price.
+    private static final int BUFFER_MIN_SIZE = Integer.getInteger("muxy.buffer.min", 511);
 
     /* openStreamWrites also acts as a barrier for all writing threads when global updates happen */
     protected final HashMap<Integer, StreamOut> openStreamWrites = new HashMap<>();
@@ -414,7 +419,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
             maybeWriteBlock();
             synchronized (this) {
                 if (outputBuffer.capacity() == 0) {
-                    outputBuffer.ensureWritable(65536);
+                    outputBuffer.ensureWritable(BUFFER_MIN_SIZE);
                 }
                 output.write(b);
                 openWriteBytes.addAndGet(1);
@@ -426,7 +431,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
             maybeWriteBlock();
             synchronized (this) {
                 if (outputBuffer.capacity() == 0) {
-                    outputBuffer.ensureWritable(65536);
+                    outputBuffer.ensureWritable(BUFFER_MIN_SIZE);
                 }
                 output.write(b, off, len);
                 openWriteBytes.addAndGet(len);
