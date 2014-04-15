@@ -76,7 +76,7 @@ class MuxFileDirectoryCacheInstance {
                 public void run() {
                     doEviction();
                 }
-            }, cacheTimer, cacheTimer, TimeUnit.SECONDS);
+            }, cacheTimer, cacheTimer, TimeUnit.MILLISECONDS);
         }
     }
 
