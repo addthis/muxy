@@ -49,10 +49,13 @@ public class TestMultiplexedFileServer {
         MuxFileDirectory.EXIT_CLOSURE_TIMEOUT = 500;
         MuxFileDirectory.EXIT_CLOSURE_TIMEOUT_FORCE = true;
         MuxFileDirectory.WRITE_CLOSE_GRACE_TIME = 100;
-        MuxFileDirectoryCache.CACHE_TIMER = 10;
-        MuxFileDirectoryCache.CACHE_DIR_MAX = 10;
-        MuxFileDirectoryCache.CACHE_STREAM_MAX = 11000;
-        MuxFileDirectoryCache.WRITE_CACHE_DIR_LINGER = 10;
+
+        MuxFileDirectoryCacheInstance testCache = new MuxFileDirectoryCacheInstance.Builder()
+                .cacheTimer(10)
+                .cacheDirMax(10)
+                .cacheStreamMax(1100)
+                .writeCacheDirLiner(10)
+                .build();
 
         final int dirCount = 1000;
         final int fileCountPerDir = 5;
@@ -93,11 +96,11 @@ public class TestMultiplexedFileServer {
             }
             if (i > 0 && i % 1000 == 0) {
                 log.info("test1 @ switch " + i +
-                                   " open=" + openSet.size() +
-                                   " cache.churn=" + MuxFileDirectoryCache.getAndClearCacheEvictions() +
-                                   " cache.dir=" + MuxFileDirectoryCache.getCacheDirSize() +
-                                   " cache.file=" + MuxFileDirectoryCache.getCacheFileSize() +
-                                   " cache.streams=" + MuxFileDirectoryCache.getCacheStreamSize());
+                         " open=" + openSet.size() +
+                         " cache.churn=" + MuxFileDirectoryCache.getAndClearCacheEvictions() +
+                         " cache.dir=" + MuxFileDirectoryCache.getCacheDirSize() +
+                         " cache.file=" + MuxFileDirectoryCache.getCacheFileSize() +
+                         " cache.streams=" + MuxFileDirectoryCache.getCacheStreamSize());
             }
         }
 
