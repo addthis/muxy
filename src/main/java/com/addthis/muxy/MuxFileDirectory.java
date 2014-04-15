@@ -13,11 +13,21 @@
  */
 package com.addthis.muxy;
 
+import com.addthis.basis.util.Bytes;
+import com.addthis.basis.util.JitterClock;
+import com.addthis.basis.util.Parameter;
+import com.google.common.base.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.UUID;
@@ -26,22 +36,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.GZIPOutputStream;
 
-import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
-import java.nio.file.Files;
-import java.nio.file.Path;
-
-import com.addthis.basis.util.Bytes;
-import com.addthis.basis.util.JitterClock;
-import com.addthis.basis.util.Parameter;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
-import static java.nio.file.StandardOpenOption.CREATE;
-import static java.nio.file.StandardOpenOption.READ;
-import static java.nio.file.StandardOpenOption.WRITE;
+import static java.nio.file.StandardCopyOption.*;
+import static java.nio.file.StandardOpenOption.*;
 
 /**
  * Wraps MuxStreamDirectory to add file name to id mapping as
@@ -337,9 +333,11 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
         @Override
         protected void finalize() {
             try {
-                close();
+                if (maybeClose()) {
+                    log.error("Finalize method had to close StreamWriter: {}", this);
+                }
             } catch (Exception ex) {
-                ex.printStackTrace();
+                log.error("Finalize method encountered an exception while trying to close StreamWriter: {}", this);
             }
         }
 
@@ -405,8 +403,7 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
             }
         }
 
-        @Override
-        public synchronized void close() throws IOException {
+        private synchronized boolean maybeClose() throws IOException {
             if (currentStream != null) {
                 closeCurrentStream();
                 publishEvent(MuxyFileEvent.FILE_CLOSE, meta);
@@ -417,7 +414,25 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
                 if (deleted) {
                     publishEvent(MuxyFileEvent.CLOSED_ALL_FILE_WRITERS, meta);
                 }
+                return true;
             }
+            return false;
+        }
+
+        @Override
+        public void close() throws IOException {
+            maybeClose();
+        }
+
+        @Override
+        public String toString() {
+            return Objects.toStringHelper(this)
+                    .add("meta", meta)
+                    .add("currentStream", currentStream)
+                    .add("lastGlobalBytes", lastGlobalBytes)
+                    .add("bytesWritten", bytesWritten)
+                    .add("compress", compress)
+                    .toString();
         }
     }
 
