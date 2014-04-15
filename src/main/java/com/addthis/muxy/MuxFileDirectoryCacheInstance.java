@@ -81,12 +81,8 @@ class MuxFileDirectoryCacheInstance {
     }
 
     private MuxFileDirectoryCacheInstance(Builder builder) {
-        cacheTimer = builder.cacheTimer;
-        cacheDirMax = builder.cacheDirMax;
-        cacheFileMax = builder.cacheFileMax;
-        cacheStreamMax = builder.cacheStreamMax;
-        cacheBytesMax = builder.cacheBytesMax;
-        writeCacheDirLiner = builder.writeCacheDirLiner;
+        this(builder.cacheTimer, builder.cacheDirMax, builder.cacheFileMax,
+                builder.cacheStreamMax, builder.cacheBytesMax, builder.writeCacheDirLiner);
     }
 
     private void doEviction() {
