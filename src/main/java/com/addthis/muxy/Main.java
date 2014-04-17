@@ -119,7 +119,7 @@ public class Main {
                 File file = new File(args[i]);
                 MuxFileDirectoryCache.getWriteableInstance(file.getParentFile()).defrag();
             }
-        } else if (args[0].equals("block-stat")) {
+        } else if ((args.length >= 1) && "block-stat".equals(args[0])) {
             File file = new File(".");
             if (args.length >= 2) {
                 file = new File(args[1]);
