@@ -19,6 +19,8 @@ import java.io.OutputStream;
 
 import com.addthis.basis.util.Bytes;
 
+import com.google.common.base.Objects;
+
 /* meta data for start/end of a stream */
 public class MuxStream {
 
@@ -92,6 +94,13 @@ public class MuxStream {
 
     @Override
     public String toString() {
-        return "StreamMeta:" + streamID + "," + startFile + "#" + startFileBlockOffset + "," + endFile + "#" + endFileBlockOffset + "," + bytes;
+        return Objects.toStringHelper(this)
+                .add("streamID", streamID)
+                .add("startFile", startFile)
+                .add("startFileBlockOffset", startFileBlockOffset)
+                .add("endFile", endFile)
+                .add("endFileBlockOffset", endFileBlockOffset)
+                .add("bytes", bytes)
+                .toString();
     }
 }
