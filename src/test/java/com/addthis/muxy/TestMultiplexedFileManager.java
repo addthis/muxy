@@ -14,6 +14,7 @@
 package com.addthis.muxy;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
@@ -63,15 +64,15 @@ public class TestMultiplexedFileManager {
         log.info("test1 TEMP DIR --> {}", dir);
         MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger);
 
-        MuxFile stream1 = createFileStream(mfs, 1, 1)[0];
+        MuxFile stream1 = createFileStream(mfs, 1, 1)[0].meta;
         validateFile(stream1);
 
-        MuxFile stream2 = createFileStream(mfs, 1, 1)[0];
+        MuxFile stream2 = createFileStream(mfs, 1, 1)[0].meta;
         validateFile(stream2);
         validateFile(stream1);
 
-        MuxFile stream3 = createFileStream(mfs, 1, 1)[0];
-        MuxFile stream4 = createFileStream(mfs, 1, 1)[0];
+        MuxFile stream3 = createFileStream(mfs, 1, 1)[0].meta;
+        MuxFile stream4 = createFileStream(mfs, 1, 1)[0].meta;
         validateFile(stream4);
         validateFile(stream3);
         validateFile(stream2);
@@ -103,9 +104,9 @@ public class TestMultiplexedFileManager {
         for (int iter = 1; iter < 5; iter++) {
             for (int conc = 1; conc < 50; conc++) {
                 log.debug("test2 ITERATIONS {} CONCURRENCY {}", iter, conc);
-                MuxFile[] streams = createFileStream(mfs, iter, conc);
-                for (MuxFile stream : streams) {
-                    totalChars += validateFile(stream);
+                WriteMeta[] writeMetas = createFileStream(mfs, iter, conc);
+                for (WriteMeta writeMeta : writeMetas) {
+                    totalChars += validateFile(writeMeta.meta);
                     totalStreams++;
                 }
             }
@@ -143,7 +144,7 @@ public class TestMultiplexedFileManager {
         for (int i = 0; i < 50; i++) {
             futures[i] = executor.submit(new Callable<Void>() {
                 public Void call() throws Exception {
-                    MuxFile stream = createFileStream(mfs, 1000, 1)[0];
+                    MuxFile stream = createFileStream(mfs, 1000, 1)[0].meta;
                     validateFile(stream);
                     streams.put(stream);
                     return null;
@@ -188,7 +189,7 @@ public class TestMultiplexedFileManager {
         final MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger);
         Assert.assertFalse(mfs.exists("someNewFile"));
 
-        MuxFile stream1 = createFileStream(mfs, 1, 1)[0];
+        MuxFile stream1 = createFileStream(mfs, 1, 1)[0].meta;
         Assert.assertTrue(mfs.exists(stream1.getName()));
     }
 
@@ -229,32 +230,38 @@ public class TestMultiplexedFileManager {
 //      deleteDirectory(dir);
 //  }
 
-    private MuxFile[] createFileStream(MuxFileDirectory mfs, int iter, int conc) throws Exception {
-        MuxFile[] meta = new MuxFile[conc];
-        OutputStream[] out = new OutputStream[conc];
-        String[] template = new String[conc];
-        for (int i = 0; i < meta.length; i++) {
-            meta[i] = mfs.openFile("{" + nextFileName.incrementAndGet() + "}", true);
-            out[i] = meta[i].append();
-            Bytes.writeInt(iter, out[i]);
-            template[i] = "[file." + meta[i].getName() + "] <<< xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx >>>";
+    private static class WriteMeta {
+        MuxFile meta;
+        OutputStream out;
+        String template;
+
+        WriteMeta(MuxFileDirectory mfs, int fileId) throws IOException {
+            meta = mfs.openFile("{" + fileId + "}", true);
+            out = meta.append();
+            template = "[file." + meta.getName() + "] <<< xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx >>>";
         }
-        while (iter-- > 0) {
-            for (int i = 0; i < meta.length; i++) {
+    }
+
+    private WriteMeta[] createFileStream(MuxFileDirectory mfs, int writes, int files) throws Exception {
+        WriteMeta[] metas = new WriteMeta[files];
+        for (int i = 0; i < files; i++) {
+            metas[i] = new WriteMeta(mfs, nextFileName.incrementAndGet());
+            Bytes.writeInt(writes, metas[i].out);
+        }
+
+        for (int i = 0; i < writes; i++) {
+            for (WriteMeta meta : metas) {
                 for (char c = 'a'; c < 'z'; c++) {
-                    Bytes.writeString(template[i].replace("x", c + ""), out[i]);
+                    Bytes.writeString(meta.template.replace("x", c + ""), meta.out);
                 }
             }
         }
-        for (int i = 0; i < meta.length; i++) {
-            out[i].close();
-            boolean verboseCreate = false;
-            if (verboseCreate) {
-                log.info("created file {}", meta[i].getName());
-            }
+        for (WriteMeta meta : metas) {
+            meta.out.close();
+            log.debug("created file {}", meta.meta.getName());
         }
         mfs.writeStreamMux.writeStreamsToBlock();
-        return meta;
+        return metas;
     }
 
     private static int validateFile(MuxFile meta) throws Exception {
