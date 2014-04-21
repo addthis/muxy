@@ -217,9 +217,11 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
     protected MuxStream deleteStream(final int streamID) throws IOException {
         synchronized (openStreamWrites) {
             final Set<Integer> usedSet = new HashSet<>();
-            for (MuxStream metaAdd : streamDirectoryMap.values()) {
-                usedSet.add(metaAdd.startFile);
-                usedSet.add(metaAdd.endFile);
+            if (deleteFreed) {
+                for (MuxStream metaAdd : streamDirectoryMap.values()) {
+                    usedSet.add(metaAdd.startFile);
+                    usedSet.add(metaAdd.endFile);
+                }
             }
             final MuxStream meta = streamDirectoryMap.remove(streamID);
             if (meta == null) {

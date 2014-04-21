@@ -14,6 +14,7 @@
 package com.addthis.muxy;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
@@ -45,6 +46,8 @@ public class TestMultiplexedFileStreams {
 
     private static final Logger log = LoggerFactory.getLogger(TestMultiplexedFileStreams.class);
 
+    private static final String WRITE_TEMPLATE = "<<< xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx >>>";
+    private static final String[] CHAR_WRITES = new String[26];
     private static final Set<MuxyStreamEvent> debugEvents = EnumSet.noneOf(MuxyStreamEvent.class);
     private static final Set<MuxyStreamEvent> allEvents = EnumSet.allOf(MuxyStreamEvent.class);
 
@@ -54,6 +57,11 @@ public class TestMultiplexedFileStreams {
     @BeforeClass
     public static void addWatchedEvents() {
 //        debugEvents.add(MuxyStreamEvent.LOG_READ);
+
+        int i = 0;
+        for (char c = 'a'; c <= 'z'; c++) {
+            CHAR_WRITES[i++] = WRITE_TEMPLATE.replace("x", String.valueOf(c));
+        }
     }
 
     @Test
@@ -66,15 +74,15 @@ public class TestMultiplexedFileStreams {
         mfs.setMaxBlockSize(1000);
         mfs.setMaxFileSize(10000);
 
-        MuxStream stream1 = createWriteStream(mfs, 1, 1)[0];
+        MuxStream stream1 = createWriteStream(mfs, 1, 1)[0].stream;
         validateStream(mfs, stream1);
 
-        MuxStream stream2 = createWriteStream(mfs, 1, 1)[0];
+        MuxStream stream2 = createWriteStream(mfs, 1, 1)[0].stream;
         validateStream(mfs, stream2);
         validateStream(mfs, stream1);
 
-        MuxStream stream3 = createWriteStream(mfs, 1, 1)[0];
-        MuxStream stream4 = createWriteStream(mfs, 1, 1)[0];
+        MuxStream stream3 = createWriteStream(mfs, 1, 1)[0].stream;
+        MuxStream stream4 = createWriteStream(mfs, 1, 1)[0].stream;
         validateStream(mfs, stream4);
         validateStream(mfs, stream3);
         validateStream(mfs, stream2);
@@ -108,9 +116,9 @@ public class TestMultiplexedFileStreams {
         for (int iter = 1; iter < 10; iter++) {
             for (int conc = 1; conc < 50; conc++) {
                 log.debug("test2 ITERATIONS {} CONCURRENCY {}", iter, conc);
-                MuxStream[] streams = createWriteStream(mfs, iter, conc);
-                for (MuxStream stream : streams) {
-                    totalChars += validateStream(mfs, stream);
+                WriteStream[] streams = createWriteStream(mfs, iter, conc);
+                for (WriteStream stream : streams) {
+                    totalChars += validateStream(mfs, stream.stream);
                     totalStreams++;
                 }
             }
@@ -148,7 +156,7 @@ public class TestMultiplexedFileStreams {
         for (int i = 0; i < 100; i++) {
             futures[i] = executor.submit(new Callable<Void>() {
                 public Void call() throws Exception {
-                    MuxStream stream = createWriteStream(mfs, 1000, 1)[0];
+                    MuxStream stream = createWriteStream(mfs, 1000, 1)[0].stream;
                     validateStream(mfs, stream);
                     streams.put(stream);
                     return null;
@@ -201,7 +209,7 @@ public class TestMultiplexedFileStreams {
 
         for (int loop = 0; loop < 3; loop++) {
             for (int i = 0; i < 10000; i++) {
-                streams.add(createWriteStream(mfs, 1, 1)[0]);
+                streams.add(createWriteStream(mfs, 1, 1)[0].stream);
             }
 
             log.info("testDelete.pre files.{} --> {}", loop, Strings.join(dir.listFiles(), "\n-- "));
@@ -220,49 +228,59 @@ public class TestMultiplexedFileStreams {
         }
     }
 
+    private static class WriteStream {
+        MuxStream stream;
+        OutputStream out;
+        String template;
+
+        WriteStream(MuxStreamDirectory muxStreamDirectory) throws IOException {
+            stream = muxStreamDirectory.createStream();
+            out = muxStreamDirectory.appendStream(stream);
+            template = "[stream." + stream.getStreamID() + "] ";
+        }
+    }
+
     /**
      * create one or more potentially overlapping streams with a test iteration count
      */
-    private static MuxStream[] createWriteStream(MuxStreamDirectory mfs, int iter, int conc) throws Exception {
-        MuxStream[] meta = new MuxStream[conc];
-        OutputStream[] out = new OutputStream[conc];
-        String[] template = new String[conc];
-        for (int i = 0; i < meta.length; i++) {
-            meta[i] = mfs.createStream();
-            out[i] = mfs.appendStream(meta[i]);
-            Bytes.writeInt(iter, out[i]);
-            template[i] = "[stream." + meta[i].getStreamID() + "] <<< xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx >>>";
+    private static WriteStream[] createWriteStream(MuxStreamDirectory muxStreamDirectory, int writes, int streams) throws Exception {
+        WriteStream[] writeStreams = new WriteStream[streams];
+        for (int i = 0; i < streams; i++) {
+            writeStreams[i] = new WriteStream(muxStreamDirectory);
+            Bytes.writeInt(writes, writeStreams[i].out);
         }
-        while (iter-- > 0) {
-            for (int i = 0; i < meta.length; i++) {
-                for (char c = 'a'; c < 'z'; c++) {
-                    Bytes.writeString(template[i].replace("x", c + ""), out[i]);
+
+        for (int i = 0; i < writes; i++) {
+            for (WriteStream writeStream : writeStreams) {
+                for (String CHAR_WRITE : CHAR_WRITES) {
+                    Bytes.writeString(writeStream.template + CHAR_WRITE, writeStream.out);
                 }
             }
         }
-        for (int i = 0; i < meta.length; i++) {
-            out[i].close();
-            log.debug("created stream {}", meta[i].getStreamID());
+        for (WriteStream writeStream : writeStreams) {
+            writeStream.out.close();
+            log.debug("created stream {}", writeStream.stream.getStreamID());
         }
-        mfs.writeStreamsToBlock();
-        return meta;
+        muxStreamDirectory.writeStreamsToBlock();
+        return writeStreams;
     }
 
     private static int validateStream(ReadMuxStreamDirectory mfs, MuxStream meta) throws Exception {
-        InputStream in = mfs.readStream(meta);
-        int iter = Bytes.readInt(in);
-        int readString = 0;
-        while (iter-- > 0) {
-            for (char c = 'a'; c < 'z'; c++) {
-                String read = Bytes.readString(in);
-                readString += read.length();
-                log.debug("read.{} [{}] --> {}", c, read.length(), read);
-                Assert.assertTrue("fail contain " + c + " in " + read, read.indexOf(c) > 0);
-                Assert.assertTrue("fail 'stream." + meta.getStreamID() + "' in " + read, read.indexOf("stream." + meta.getStreamID()) > 0);
+        try(InputStream in = mfs.readStream(meta)) {
+            int writes = Bytes.readInt(in);
+            int readString = 0;
+            for (int i = 0; i < writes; i++) {
+                for (String CHAR_WRITE : CHAR_WRITES) {
+                    String read = Bytes.readString(in);
+                    readString += read.length();
+                    log.debug("read.{} [{}] --> {}", CHAR_WRITE.charAt(0), read.length(), read);
+                    Assert.assertTrue("fail contain " + CHAR_WRITE + " in " + read, read.indexOf(CHAR_WRITE) > 0);
+                    Assert.assertTrue("fail 'stream." + meta.getStreamID() + "' in " + read,
+                            read.indexOf("stream." + meta.getStreamID()) > 0);
+                }
             }
+            log.debug("validated stream {} of {} chars", meta.getStreamID(), readString);
+            return readString;
         }
-        in.close();
-        log.debug("validated stream {} of {} chars", meta.getStreamID(), readString);
-        return readString;
     }
 }

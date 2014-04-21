@@ -235,9 +235,9 @@ public class TestMultiplexedFileManager {
 //          log.info("testDelete.pre files."+loop+" --> " + Strings.join(dir.listFiles(), "\n-- "));
 //          log.info("testDelete.pre active."+loop+" --> " + mfs.getActiveFiles().size());
 //
-//          for (MuxStreamDirectory.StreamMeta meta : streams)
+//          for (MuxStreamDirectory.StreamMeta stream : streams)
 //          {
-//              mfs.deleteStream(meta.getStreamID());
+//              mfs.deleteStream(stream.getStreamID());
 //          }
 //
 //          mfs.waitForWriteClosure();
