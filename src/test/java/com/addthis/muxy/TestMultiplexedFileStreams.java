@@ -29,10 +29,13 @@ import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import com.addthis.basis.util.Bytes;
-import com.addthis.basis.util.Strings;
+
+import com.google.common.collect.Iterators;
 
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -56,7 +59,7 @@ public class TestMultiplexedFileStreams {
 
     @BeforeClass
     public static void addWatchedEvents() {
-//        debugEvents.add(MuxyStreamEvent.LOG_READ);
+//        debugEvents.add(MuxyStreamEvent.BLOCK_FILE_FREED);
 
         int i = 0;
         for (char c = 'a'; c <= 'z'; c++) {
@@ -196,13 +199,13 @@ public class TestMultiplexedFileStreams {
     }
 
     @Test
-    public void testDelete() throws Exception {
-        File dir = tempFolder.newFolder();
-        log.info("testDelete TEMP DIR --> {}", dir);
+    public void deleteAll() throws Exception {
+        Path dir = tempFolder.newFolder().toPath();
+        log.info("deleteAll TEMP DIR --> {}", dir);
         final LinkedBlockingQueue<MuxStream> streams = new LinkedBlockingQueue<>();
 
-        EventLogger<MuxyStreamEvent> eventLogger = new EventLogger<>("testDelete", debugEvents);
-        final MuxStreamDirectory mfs = new MuxStreamDirectory(dir.toPath(), eventLogger);
+        EventLogger<MuxyStreamEvent> eventLogger = new EventLogger<>("deleteAll", debugEvents);
+        final MuxStreamDirectory mfs = new MuxStreamDirectory(dir, eventLogger);
         mfs.setDeleteFreed(true);
         mfs.setMaxBlockSize(100 * 1024);
         mfs.setMaxFileSize(1 * 1024 * 1024);
@@ -212,19 +215,25 @@ public class TestMultiplexedFileStreams {
                 streams.add(createWriteStream(mfs, 1, 1)[0].stream);
             }
 
-            log.info("testDelete.pre files.{} --> {}", loop, Strings.join(dir.listFiles(), "\n-- "));
-            log.info("testDelete.pre active.{} --> {}", loop, mfs.getActiveFiles().size());
+            Assert.assertEquals("all data files should be active files",
+                    dataFileCount(dir), mfs.getActiveFiles().size());
 
             for (MuxStream meta : streams) {
                 mfs.deleteStream(meta.getStreamID());
             }
 
             mfs.waitForWriteClosure();
-            log.info("testDelete.post files.{} --> {}", loop, Strings.join(dir.listFiles(), "\n-- "));
-            log.info("testDelete.post active.{} --> {}", loop, mfs.getActiveFiles().size());
-            Assert.assertTrue(mfs.getActiveFiles().size() == 0);
+
+            Assert.assertTrue("there should be at most one data file", dataFileCount(dir) <= 1);
+            Assert.assertEquals("there should be no active fileIds", 0, mfs.getActiveFiles().size());
 
             streams.clear();
+        }
+    }
+
+    private static int dataFileCount(Path dir) throws IOException {
+        try(DirectoryStream<Path> dataFiles = Files.newDirectoryStream(dir, "out-*")) {
+            return Iterators.size(dataFiles.iterator());
         }
     }
 

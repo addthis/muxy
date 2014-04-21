@@ -79,6 +79,7 @@ public class ReadMuxStreamDirectory {
     protected FileLock writeMutexLock;
     protected MuxyEventListener<MuxyStreamEvent> eventListener;
     protected boolean deleteFreed;
+    protected int startFile = 1;
 
     public ReadMuxStreamDirectory(Path dir) throws Exception {
         this(dir, null);
@@ -137,7 +138,7 @@ public class ReadMuxStreamDirectory {
 
 
         // Get stats
-        Iterator<Path> dataFiles = Files.newDirectoryStream(streamDirectory, fileMatch).iterator();
+        Iterator<Path> dataFiles = Files.newDirectoryStream(streamDirectory, "out-*").iterator();
         Path lastPath = dataFiles.next();
         long nextBlockPosition = 0;
         RandomAccessFile input = new RandomAccessFile(lastPath.toFile(), "r");
@@ -252,16 +253,26 @@ public class ReadMuxStreamDirectory {
     }
 
     public Collection<Path> getActiveFiles() throws IOException {
-        Set<Integer> usedSet = new HashSet<>();
-        for (MuxStream metaAdd : streamDirectoryMap.values()) {
-            usedSet.add(metaAdd.startFile);
-            usedSet.add(metaAdd.endFile);
+        int currentFileId = streamDirectoryConfig.currentFile.get();
+        int startFileId   = startFile;
+        int[] fileSpansPerStart = new int[currentFileId - startFileId + 1];
+        for (MuxStream meta : streamDirectoryMap.values()) {
+            fileSpansPerStart[meta.startFile - startFileId] =
+                    Math.max(fileSpansPerStart[meta.startFile - startFileId], meta.endFile);
         }
-        Set<Path> open = new HashSet<>();
-        for (Integer used : usedSet) {
-            open.add(getFileByID(used));
+        Set<Path> usedFiles = new HashSet<>(currentFileId);
+        int usedFilesLookahead = -1;
+        for (int i = 0; i < fileSpansPerStart.length; i++) {
+            int length = fileSpansPerStart[i] - i;
+            usedFilesLookahead = Math.max(length, usedFilesLookahead);
+            usedFilesLookahead -= 1;
+            if (usedFilesLookahead >= 0) {
+                // file is used
+                int fileId = i + startFileId;
+                usedFiles.add(getFileByID(fileId));
+            }
         }
-        return open;
+        return usedFiles;
     }
 
     public InputStream readStream(MuxStream meta) throws IOException {

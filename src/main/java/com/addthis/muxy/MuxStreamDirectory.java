@@ -19,9 +19,7 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -216,41 +214,45 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
 
     protected MuxStream deleteStream(final int streamID) throws IOException {
         synchronized (openStreamWrites) {
-            final Set<Integer> usedSet = new HashSet<>();
-            if (deleteFreed) {
-                for (MuxStream metaAdd : streamDirectoryMap.values()) {
-                    usedSet.add(metaAdd.startFile);
-                    usedSet.add(metaAdd.endFile);
-                }
-            }
-            final MuxStream meta = streamDirectoryMap.remove(streamID);
-            if (meta == null) {
+            MuxStream deletedMeta = streamDirectoryMap.remove(streamID);
+            if (deletedMeta == null) {
                 throw new IOException("No Such Stream ID " + streamID + " in " + streamDirectory);
             }
             publishEvent(MuxyStreamEvent.STREAM_DELETE, streamID);
             if (deleteFreed) {
-                  /* scan chunk map and remove still-used files */
-                for (MuxStream metaDel : streamDirectoryMap.values()) {
-                    usedSet.remove(metaDel.startFile);
-                    usedSet.remove(metaDel.endFile);
+                int currentFileId = streamDirectoryConfig.currentFile.get();
+                int startFileId   = startFile;
+                int[] fileSpansPerStart = new int[currentFileId - startFileId + 1];
+                log.trace("current {} start {} length {}", currentFileId, startFileId,
+                        (currentFileId - startFileId) + 1);
+                for (MuxStream meta : streamDirectoryMap.values()) {
+                    fileSpansPerStart[meta.startFile - startFileId] =
+                            Math.max(fileSpansPerStart[meta.startFile - startFileId], meta.endFile);
                 }
-
-                int currentFile = streamDirectoryConfig.currentFile.get();
-                  /* whatever remains is unused */
-                for (Integer delete : usedSet) {
-                    Path file = getFileByID(delete);
-                    if (!Files.deleteIfExists(file)) {
-                        log.warn("Tried to delete os file, but it did not exist : {}", file);
-                    }
-                    log.debug("deleting stream {} freed {}", streamID, file);
-                    publishEvent(MuxyStreamEvent.BLOCK_FILE_FREED, file);
-                    if (delete == currentFile) //if we are deleting the current output file. Reopen it to recreate and init
-                    {
-                        openWriteFile = FileChannel.open(file, APPEND, CREATE);
+                int usedFilesLookahead = -1;
+                for (int i = 0; i < fileSpansPerStart.length; i++) {
+                    int length = fileSpansPerStart[i] - i;
+                    usedFilesLookahead = Math.max(length, usedFilesLookahead);
+                    usedFilesLookahead -= 1;
+                    if (usedFilesLookahead < 0) {
+                        // fileId is unused
+                        int fileId = i + startFileId;
+                        Path file = getFileByID(fileId);
+                        if (Files.deleteIfExists(file)) {
+                            log.debug("Deleted freed file {}", file);
+                            publishEvent(MuxyStreamEvent.BLOCK_FILE_FREED, file);
+                            //  if we are deleting the current output file. Reopen it to recreate and init
+                            if (fileId == currentFileId) {
+                                openWriteFile = FileChannel.open(file, APPEND, CREATE);
+                            }
+                        }
+                        if ((fileId == startFile) && (fileId != currentFileId)) {
+                            startFile += 1;
+                        }
                     }
                 }
             }
-            return meta;
+            return deletedMeta;
         }
     }
 
