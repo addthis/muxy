@@ -34,7 +34,7 @@ import com.addthis.basis.util.Bytes;
 import com.addthis.basis.util.Files;
 
 import org.junit.Assert;
-import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,12 +43,13 @@ public class TestMultiplexedFileManager {
 
     private static final Logger log = LoggerFactory.getLogger(TestMultiplexedFileManager.class);
 
-    private final AtomicInteger nextFileName = new AtomicInteger(0);
-    private final Set<MuxyFileEvent> debugEvents = EnumSet.noneOf(MuxyFileEvent.class);
-    private final Set<MuxyFileEvent> allEvents = EnumSet.allOf(MuxyFileEvent.class);
+    private static final Set<MuxyFileEvent> debugEvents = EnumSet.noneOf(MuxyFileEvent.class);
+    private static final Set<MuxyFileEvent> allEvents = EnumSet.allOf(MuxyFileEvent.class);
 
-    @Before
-    public void addWatchedEvents() {
+    private final AtomicInteger nextFileName = new AtomicInteger(0);
+
+    @BeforeClass
+    public static void addWatchedEvents() {
         debugEvents.add(MuxyFileEvent.LOG_READ);
         debugEvents.add(MuxyFileEvent.LOG_COMPACT);
         debugEvents.add(MuxyFileEvent.CLOSED_ALL_FILE_WRITERS);

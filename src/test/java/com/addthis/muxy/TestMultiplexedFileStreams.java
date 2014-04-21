@@ -38,7 +38,7 @@ import com.addthis.basis.util.Strings;
 import com.google.common.io.Files;
 
 import org.junit.Assert;
-import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,11 +47,11 @@ public class TestMultiplexedFileStreams {
 
     private static final Logger log = LoggerFactory.getLogger(TestMultiplexedFileStreams.class);
 
-    private final Set<MuxyStreamEvent> debugEvents = EnumSet.noneOf(MuxyStreamEvent.class);
-    private final Set<MuxyStreamEvent> allEvents = EnumSet.allOf(MuxyStreamEvent.class);
+    private static final Set<MuxyStreamEvent> debugEvents = EnumSet.noneOf(MuxyStreamEvent.class);
+    private static final Set<MuxyStreamEvent> allEvents = EnumSet.allOf(MuxyStreamEvent.class);
 
-    @Before
-    public void addWatchedEvents() {
+    @BeforeClass
+    public static void addWatchedEvents() {
 //        debugEvents.add(MuxyStreamEvent.LOG_READ);
     }
 
