@@ -19,8 +19,6 @@ import java.io.OutputStream;
 
 import java.util.Collection;
 import java.util.EnumSet;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -35,11 +33,11 @@ import java.nio.file.Path;
 import com.addthis.basis.util.Bytes;
 import com.addthis.basis.util.Strings;
 
-import com.google.common.io.Files;
-
 import org.junit.Assert;
 import org.junit.BeforeClass;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,44 +48,17 @@ public class TestMultiplexedFileStreams {
     private static final Set<MuxyStreamEvent> debugEvents = EnumSet.noneOf(MuxyStreamEvent.class);
     private static final Set<MuxyStreamEvent> allEvents = EnumSet.allOf(MuxyStreamEvent.class);
 
+    @Rule
+    public final TemporaryFolder tempFolder = new TemporaryFolder();
+
     @BeforeClass
     public static void addWatchedEvents() {
 //        debugEvents.add(MuxyStreamEvent.LOG_READ);
     }
 
-    public static void deleteDirectory(File dir) {
-        deleteDirectory(dir, null);
-    }
-
-    public static void deleteDirectoryReport(File dir) {
-        LinkedList<File> fail = new LinkedList<>();
-        deleteDirectory(dir, fail);
-        if (fail.size() > 0) {
-            log.info("failed to delete files: {}", fail);
-        }
-    }
-
-    private static void deleteDirectory(File dir, List<File> fail) {
-        File[] files = dir.listFiles();
-        if (files == null) {
-            return;
-        }
-        for (File file : files) {
-            if (file.isDirectory()) {
-                deleteDirectory(file);
-            }
-            if (!file.delete() && fail != null) {
-                fail.add(file);
-            }
-        }
-        if (!dir.delete() && fail != null) {
-            fail.add(dir);
-        }
-    }
-
     @Test
     public void test1() throws Exception {
-        File dirFile = Files.createTempDir();
+        File dirFile = tempFolder.newFolder();
         Path dir = dirFile.toPath();
         log.info("test1 TEMP DIR --> {}", dir);
         EventLogger<MuxyStreamEvent> eventLogger = new EventLogger<>("test1", debugEvents);
@@ -120,13 +91,11 @@ public class TestMultiplexedFileStreams {
         validateStream(mfs2, stream3);
         validateStream(mfs2, stream2);
         validateStream(mfs2, stream1);
-
-        deleteDirectory(dirFile);
     }
 
     @Test
     public void test2() throws Exception {
-        File dir = Files.createTempDir();
+        File dir = tempFolder.newFolder();
         log.info("test2 TEMP DIR --> {}", dir);
         EventLogger<MuxyStreamEvent> eventLogger = new EventLogger<>("test2", debugEvents);
         MuxStreamDirectory mfs = new MuxStreamDirectory(dir.toPath(), eventLogger);
@@ -162,13 +131,11 @@ public class TestMultiplexedFileStreams {
         for (MuxStream meta : goodList) {
             validateStream(readStreamDirectory, meta);
         }
-
-        deleteDirectory(dir);
     }
 
     @Test
     public void test3() throws Throwable {
-        File dir = Files.createTempDir();
+        File dir = tempFolder.newFolder();
         log.info("test3 TEMP DIR --> {}", dir);
         final LinkedBlockingQueue<MuxStream> streams = new LinkedBlockingQueue<>();
         EventLogger<MuxyStreamEvent> eventLogger = new EventLogger<>("test3", debugEvents);
@@ -218,13 +185,11 @@ public class TestMultiplexedFileStreams {
         for (MuxStream meta : streams) {
             validateStream(mfs2, meta);
         }
-
-        deleteDirectory(dir);
     }
 
     @Test
     public void testDelete() throws Exception {
-        File dir = Files.createTempDir();
+        File dir = tempFolder.newFolder();
         log.info("testDelete TEMP DIR --> {}", dir);
         final LinkedBlockingQueue<MuxStream> streams = new LinkedBlockingQueue<>();
 
@@ -253,8 +218,6 @@ public class TestMultiplexedFileStreams {
 
             streams.clear();
         }
-
-        deleteDirectory(dir);
     }
 
     /**

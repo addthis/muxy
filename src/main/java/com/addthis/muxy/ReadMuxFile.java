@@ -129,4 +129,8 @@ public class ReadMuxFile {
         // TODO potential array creation race with append
         return new MuxFileReader(dir, getStreamIDs().iterator());
     }
+
+    public InputStream read() throws IOException {
+        return read(0);
+    }
 }

@@ -32,11 +32,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.nio.file.Path;
 
 import com.addthis.basis.util.Bytes;
-import com.addthis.basis.util.Files;
 
 import org.junit.Assert;
 import org.junit.BeforeClass;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,35 +45,59 @@ public class TestMultiplexedFileManager {
 
     private static final Logger log = LoggerFactory.getLogger(TestMultiplexedFileManager.class);
 
+    private static final String WRITE_TEMPLATE = "<<< xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx >>>";
+    private static final String[] CHAR_WRITES = new String[26];
     private static final Set<MuxyFileEvent> debugEvents = EnumSet.noneOf(MuxyFileEvent.class);
     private static final Set<MuxyFileEvent> allEvents = EnumSet.allOf(MuxyFileEvent.class);
 
     private final AtomicInteger nextFileName = new AtomicInteger(0);
+
+    @Rule
+    public final TemporaryFolder tempFolder = new TemporaryFolder();
 
     @BeforeClass
     public static void addWatchedEvents() {
         debugEvents.add(MuxyFileEvent.LOG_READ);
         debugEvents.add(MuxyFileEvent.LOG_COMPACT);
         debugEvents.add(MuxyFileEvent.CLOSED_ALL_FILE_WRITERS);
+
+        int i = 0;
+        for (char c = 'a'; c <= 'z'; c++) {
+            CHAR_WRITES[i++] = WRITE_TEMPLATE.replace("x", String.valueOf(c));
+        }
+    }
+
+    @Test
+    public void simpleValidate() throws Exception {
+        EventLogger<MuxyFileEvent> eventLogger = new EventLogger<>("simpleValidate", allEvents);
+        File fileDir = tempFolder.newFolder();
+        Path dir = fileDir.toPath();
+        log.info("test1 TEMP DIR --> {}", dir);
+        MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger);
+
+        MuxFile stream1 = createWriteMetas(mfs, 2, 1)[0].meta;
+        validateFile(stream1);
+
+        mfs.waitForWriteClosure();
     }
 
     @Test
     public void test1() throws Exception {
         EventLogger<MuxyFileEvent> eventLogger = new EventLogger<>("test1", allEvents);
-        File fileDir = Files.createTempDir();
+        File fileDir = tempFolder.newFolder();
         Path dir = fileDir.toPath();
         log.info("test1 TEMP DIR --> {}", dir);
         MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger);
 
-        MuxFile stream1 = createFileStream(mfs, 1, 1)[0].meta;
+        MuxFile stream1 = createWriteMetas(mfs, 1, 1)[0].meta;
         validateFile(stream1);
 
-        MuxFile stream2 = createFileStream(mfs, 1, 1)[0].meta;
+        MuxFile stream2 = createWriteMetas(mfs, 1, 1)[0].meta;
         validateFile(stream2);
         validateFile(stream1);
 
-        MuxFile stream3 = createFileStream(mfs, 1, 1)[0].meta;
-        MuxFile stream4 = createFileStream(mfs, 1, 1)[0].meta;
+        MuxFile stream3 = createWriteMetas(mfs, 1, 1)[0].meta;
+        MuxFile stream4 = createWriteMetas(mfs, 1, 1)[0].meta;
         validateFile(stream4);
         validateFile(stream3);
         validateFile(stream2);
@@ -82,13 +107,11 @@ public class TestMultiplexedFileManager {
         log.info("test1.streams --> {}", mfs.getStreamManager().listStreams());
 
         mfs.waitForWriteClosure();
-
-        Files.deleteDir(dir.toFile());
     }
 
     @Test
     public void test2() throws Exception {
-        File fileDir = Files.createTempDir();
+        File fileDir = tempFolder.newFolder();
         Path dir = fileDir.toPath();
         log.info("test2 TEMP DIR --> {}", dir);
 
@@ -104,7 +127,7 @@ public class TestMultiplexedFileManager {
         for (int iter = 1; iter < 5; iter++) {
             for (int conc = 1; conc < 50; conc++) {
                 log.debug("test2 ITERATIONS {} CONCURRENCY {}", iter, conc);
-                WriteMeta[] writeMetas = createFileStream(mfs, iter, conc);
+                WriteMeta[] writeMetas = createWriteMetas(mfs, iter, conc);
                 for (WriteMeta writeMeta : writeMetas) {
                     totalChars += validateFile(writeMeta.meta);
                     totalStreams++;
@@ -124,12 +147,11 @@ public class TestMultiplexedFileManager {
         log.info("test2 streams {}", mfs.getStreamManager().listStreams().size());
 
         mfs.waitForWriteClosure();
-        TestMultiplexedFileStreams.deleteDirectory(dir.toFile());
     }
 
     @Test
     public void test3() throws Throwable {
-        File dirFile = Files.createTempDir();
+        File dirFile = tempFolder.newFolder();
         Path dir = dirFile.toPath();
         log.info("test3 TEMP DIR --> {}", dir);
         final LinkedBlockingQueue<MuxFile> streams = new LinkedBlockingQueue<>();
@@ -144,7 +166,7 @@ public class TestMultiplexedFileManager {
         for (int i = 0; i < 50; i++) {
             futures[i] = executor.submit(new Callable<Void>() {
                 public Void call() throws Exception {
-                    MuxFile stream = createFileStream(mfs, 1000, 1)[0].meta;
+                    MuxFile stream = createWriteMetas(mfs, 1000, 1)[0].meta;
                     validateFile(stream);
                     streams.put(stream);
                     return null;
@@ -176,12 +198,11 @@ public class TestMultiplexedFileManager {
         log.info("test3 streams {}", mfs.getStreamManager().listStreams().size());
 
         mfs.waitForWriteClosure();
-        TestMultiplexedFileStreams.deleteDirectory(dir.toFile());
     }
 
     @Test
     public void testExists() throws Exception {
-        File dirFile = Files.createTempDir();
+        File dirFile = tempFolder.newFolder();
         Path dir = dirFile.toPath();
         log.info("testExists TEMP DIR --> {}", dir);
 
@@ -189,7 +210,7 @@ public class TestMultiplexedFileManager {
         final MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger);
         Assert.assertFalse(mfs.exists("someNewFile"));
 
-        MuxFile stream1 = createFileStream(mfs, 1, 1)[0].meta;
+        MuxFile stream1 = createWriteMetas(mfs, 1, 1)[0].meta;
         Assert.assertTrue(mfs.exists(stream1.getName()));
     }
 
@@ -238,11 +259,11 @@ public class TestMultiplexedFileManager {
         WriteMeta(MuxFileDirectory mfs, int fileId) throws IOException {
             meta = mfs.openFile("{" + fileId + "}", true);
             out = meta.append();
-            template = "[file." + meta.getName() + "] <<< xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx >>>";
+            template = "[file." + meta.getName() + "] ";
         }
     }
 
-    private WriteMeta[] createFileStream(MuxFileDirectory mfs, int writes, int files) throws Exception {
+    private WriteMeta[] createWriteMetas(MuxFileDirectory mfs, int writes, int files) throws Exception {
         WriteMeta[] metas = new WriteMeta[files];
         for (int i = 0; i < files; i++) {
             metas[i] = new WriteMeta(mfs, nextFileName.incrementAndGet());
@@ -251,8 +272,8 @@ public class TestMultiplexedFileManager {
 
         for (int i = 0; i < writes; i++) {
             for (WriteMeta meta : metas) {
-                for (char c = 'a'; c < 'z'; c++) {
-                    Bytes.writeString(meta.template.replace("x", c + ""), meta.out);
+                for (String CHAR_WRITE : CHAR_WRITES) {
+                    Bytes.writeString(meta.template + CHAR_WRITE, meta.out);
                 }
             }
         }
@@ -265,20 +286,21 @@ public class TestMultiplexedFileManager {
     }
 
     private static int validateFile(MuxFile meta) throws Exception {
-        InputStream in = meta.read(0);
-        int iter = Bytes.readInt(in);
-        int readString = 0;
-        while (iter-- > 0) {
-            for (char c = 'a'; c < 'z'; c++) {
-                String read = Bytes.readString(in);
-                readString += read.length();
-                log.debug("read.{} [{}] --> {}", c, read.length(), read);
-                Assert.assertTrue("fail contain " + c + " in " + read, read.indexOf(c) > 0);
-                Assert.assertTrue("fail 'file." + meta.getName() + "' in " + read, read.indexOf("file." + meta.getName()) > 0);
+        try(InputStream in = meta.read()) {
+            int writes = Bytes.readInt(in);
+            int readString = 0;
+            for (int i = 0; i < writes; i++) {
+                for (String CHAR_WRITE : CHAR_WRITES) {
+                    String read = Bytes.readString(in);
+                    readString += read.length();
+                    log.debug("read.{} [{}] --> {}", CHAR_WRITE.charAt(0), read.length(), read);
+                    Assert.assertTrue("fail contain " + CHAR_WRITE + " in " + read, read.indexOf(CHAR_WRITE) > 0);
+                    Assert.assertTrue("fail 'file." + meta.getName() + "' in " + read,
+                            read.indexOf("file." + meta.getName()) > 0);
+                }
             }
+            log.debug("validated file {} of {} chars", meta.getName(), readString);
+            return readString;
         }
-        in.close();
-        log.debug("validated file {} of {} chars", meta.getName(), readString);
-        return readString;
     }
 }

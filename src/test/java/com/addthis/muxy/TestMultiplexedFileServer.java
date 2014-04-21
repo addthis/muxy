@@ -25,19 +25,21 @@ import java.util.Random;
 import java.nio.file.Path;
 
 import com.addthis.basis.util.Bytes;
-import com.addthis.basis.util.Files;
 
 import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import static org.junit.Assert.assertTrue;
 
 
 public class TestMultiplexedFileServer {
 
     private static final Logger log = LoggerFactory.getLogger(TestMultiplexedFileServer.class);
+
+    @Rule
+    public final TemporaryFolder tempFolder = new TemporaryFolder();
 
     /**
      * sequentially write then delete a bunch of random length files to a lot of directories.
@@ -68,7 +70,7 @@ public class TestMultiplexedFileServer {
 
         File[] tmpDir = new File[dirCount];
         for (int i = 0; i < tmpDir.length; i++) {
-            tmpDir[i] = Files.createTempDir("tms-", "-" + i);
+            tmpDir[i] = tempFolder.newFolder();
         }
 
         log.info("test1 dir=" + dirCount + " file=" + fileCountPerDir + " switch=" + switchCount + " open=" + maxOpenSetSize);
@@ -78,47 +80,41 @@ public class TestMultiplexedFileServer {
             byte[] raw = new byte[Math.min(maxBytesPerWrite, rand.nextInt(maxBytesPerWrite) + minBytesPerWrite)];
             int val = i & 0xff;
             Arrays.fill(raw, (byte) val);
-            MuxFileDirectory mfm = MuxFileDirectoryCache.getWriteableInstance(dir);
+            MuxFileDirectory mfm = testCache.getWriteableInstance(dir);
             while (openSet.size() >= maxOpenSetSize) {
                 Iterator<OutputStream> iter = openSet.iterator();
                 iter.next().close();
                 iter.remove();
             }
             try {
-                OutputStream out = mfm.openFile(file + "", true).append();
+                OutputStream out = mfm.openFile(String.valueOf(file), true).append();
                 Bytes.writeLength(raw.length, out);
                 out.write(val);
                 out.write(raw);
                 openSet.add(out);
             } catch (Exception ex) {
-                ex.printStackTrace();
+                log.error("", ex);
                 Assert.fail("iter " + i + " fail append " + dir + " / " + file);
             }
             if (i > 0 && i % 1000 == 0) {
-                log.info("test1 @ switch " + i +
-                         " open=" + openSet.size() +
-                         " cache.churn=" + MuxFileDirectoryCache.getAndClearCacheEvictions() +
-                         " cache.dir=" + MuxFileDirectoryCache.getCacheDirSize() +
-                         " cache.file=" + MuxFileDirectoryCache.getCacheFileSize() +
-                         " cache.streams=" + MuxFileDirectoryCache.getCacheStreamSize());
+                log.info("test1 @ switch {} open={} cache.churn={} cache.dir={} cache.file={} cache.streams={}",
+                        i, openSet.size(), testCache.getAndClearCacheEvictions(), testCache.getCacheDirSize(),
+                        testCache.getCacheFileSize(), testCache.getCacheStreamSize());
             }
         }
 
-        log.info("test1 closing " + openSet.size());
+        log.info("test1 closing {}", openSet.size());
         for (OutputStream out : openSet) {
             out.close();
         }
 
         log.info("test1 waiting for write closure");
-        MuxFileDirectoryCache.waitForWriteClosure();
-        if (!MuxFileDirectoryCache.tryClear()) {
+        testCache.waitForWriteClosure();
+        if (!testCache.tryClear()) {
             log.info("test1 failed to fully clear dir cache");
         }
 
-        log.info("test1 deleting " + tmpDir.length + " test directories");
-        for (File dir : tmpDir) {
-            TestMultiplexedFileStreams.deleteDirectory(dir);
-        }
+        log.info("test1 deleting {} test directories", tmpDir.length);
     }
 
     /**
@@ -126,31 +122,41 @@ public class TestMultiplexedFileServer {
      */
     @Test
     public void test2() throws Exception {
-        final byte[] raw = new byte[4096];
-        final File dir = Files.createTempDir();
-        final MuxFileDirectory mfm = MuxFileDirectoryCache.getWriteableInstance(dir);
+        MuxFileDirectory.EXIT_CLOSURE_TIMEOUT = 500;
+        MuxFileDirectory.EXIT_CLOSURE_TIMEOUT_FORCE = true;
+        MuxFileDirectory.WRITE_CLOSE_GRACE_TIME = 100;
 
-        log.info("test2 writing to " + dir);
+        MuxFileDirectoryCacheInstance testCache = new MuxFileDirectoryCacheInstance.Builder()
+                .cacheTimer(10)
+                .cacheDirMax(10)
+                .cacheStreamMax(1100)
+                .writeCacheDirLiner(10)
+                .build();
+
+        final byte[] raw = new byte[4096];
+        final File dir = tempFolder.newFolder();
+        final MuxFileDirectory mfm = testCache.getWriteableInstance(dir);
+
+        log.info("test2 writing to {}", dir);
 
         for (int i = 0; i < 100; i++) {
-            OutputStream out = mfm.openFile("tmp-" + i, true).append();
-            for (int j = 0; j < 1024; j++) {
-                out.write(raw);
+            try(OutputStream out = mfm.openFile("tmp-" + i, true).append()) {
+                for (int j = 0; j < 1024; j++) {
+                    out.write(raw);
+                }
             }
-            out.close();
         }
 
-        MuxFileDirectoryCache.waitForWriteClosure();
+        testCache.waitForWriteClosure();
 
         for (int i = 0; i < 100; i++) {
             mfm.openFile("tmp-" + i, false).delete();
         }
 
-        MuxFileDirectoryCache.waitForWriteClosure();
-        MuxFileDirectoryCache.tryEvict(mfm);
-        TestMultiplexedFileStreams.deleteDirectory(dir);
+        testCache.waitForWriteClosure();
+        testCache.tryEvict(mfm);
 
         Collection<Path> used = mfm.getStreamManager().getActiveFiles();
-        assertTrue(used.size() == 0);
+        Assert.assertTrue("active files is non-empty", used.isEmpty());
     }
 }
