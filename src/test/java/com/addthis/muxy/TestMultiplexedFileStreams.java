@@ -152,7 +152,7 @@ public class TestMultiplexedFileStreams {
                 if (verbose2) {
                     log.info("test2 ITERATIONS " + iter + " CONCURRENCY " + conc);
                 }
-                MuxStream streams[] = createWriteStream(mfs, iter, conc);
+                MuxStream[] streams = createWriteStream(mfs, iter, conc);
                 for (int i = 0; i < streams.length; i++) {
                     totalChars += validateStream(mfs, streams[i]);
                     totalStreams++;
@@ -271,9 +271,9 @@ public class TestMultiplexedFileStreams {
      * create one or more potentially overlapping streams with a test iteration count
      */
     private MuxStream[] createWriteStream(MuxStreamDirectory mfs, int iter, int conc) throws Exception {
-        MuxStream meta[] = new MuxStream[conc];
-        OutputStream out[] = new OutputStream[conc];
-        String template[] = new String[conc];
+        MuxStream[] meta = new MuxStream[conc];
+        OutputStream[] out = new OutputStream[conc];
+        String[] template = new String[conc];
         for (int i = 0; i < meta.length; i++) {
             meta[i] = mfs.createStream();
             out[i] = mfs.appendStream(meta[i]);

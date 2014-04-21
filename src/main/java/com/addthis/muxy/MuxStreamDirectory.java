@@ -427,7 +427,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
             }
         }
 
-        void write(final byte b[], final int off, final int len) throws IOException {
+        void write(final byte[] b, final int off, final int len) throws IOException {
             maybeWriteBlock();
             synchronized (this) {
                 if (outputBuffer.capacity() == 0) {
@@ -485,7 +485,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
         }
 
         @Override
-        public void write(byte b[], int off, int len) throws IOException {
+        public void write(byte[] b, int off, int len) throws IOException {
             out.write(b, off, len);
         }
 

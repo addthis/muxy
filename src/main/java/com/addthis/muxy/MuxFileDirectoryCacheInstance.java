@@ -87,7 +87,7 @@ class MuxFileDirectoryCacheInstance {
 
     private void doEviction() {
         synchronized (cache) {
-            TrackedMultiplexFileManager tmfm[] = cache.values().toArray(new TrackedMultiplexFileManager[cache.size()]);
+            TrackedMultiplexFileManager[] tmfm = cache.values().toArray(new TrackedMultiplexFileManager[cache.size()]);
             Arrays.sort(tmfm, new Comparator<TrackedMultiplexFileManager>() {
                 @Override
                 public int compare(TrackedMultiplexFileManager o1, TrackedMultiplexFileManager o2) {
@@ -153,7 +153,7 @@ class MuxFileDirectoryCacheInstance {
 
     public boolean tryEvict(MuxFileDirectory muxDir) {
         synchronized (cache) {
-            TrackedMultiplexFileManager tmfm[] = cache.values().toArray(new TrackedMultiplexFileManager[cache.size()]);
+            TrackedMultiplexFileManager[] tmfm = cache.values().toArray(new TrackedMultiplexFileManager[cache.size()]);
             for (TrackedMultiplexFileManager mfm : tmfm) {
                 if (mfm == muxDir) {
                     muxDir.waitForWriteClosure(0);
@@ -168,7 +168,7 @@ class MuxFileDirectoryCacheInstance {
 
     public boolean tryClear() {
         synchronized (cache) {
-            TrackedMultiplexFileManager tmfm[] = cache.values().toArray(new TrackedMultiplexFileManager[cache.size()]);
+            TrackedMultiplexFileManager[] tmfm = cache.values().toArray(new TrackedMultiplexFileManager[cache.size()]);
             for (TrackedMultiplexFileManager mfm : tmfm) {
                 if (mfm.waitForWriteClosure(0)) {
                     cache.remove(mfm.getDirectory());
@@ -242,7 +242,7 @@ class MuxFileDirectoryCacheInstance {
     }
 
     public void waitForWriteClosure() {
-        MuxFileDirectory list[] = null;
+        MuxFileDirectory[] list = null;
         synchronized (cache) {
             list = cache.values().toArray(new MuxFileDirectory[cache.size()]);
         }

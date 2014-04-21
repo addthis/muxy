@@ -66,7 +66,7 @@ public class TestMultiplexedFileServer {
         final Random rand = new Random(0);
         final LinkedHashSet<OutputStream> openSet = new LinkedHashSet<OutputStream>();
 
-        File tmpDir[] = new File[dirCount];
+        File[] tmpDir = new File[dirCount];
         for (int i = 0; i < tmpDir.length; i++) {
             tmpDir[i] = Files.createTempDir("tms-", "-" + i);
         }
@@ -75,7 +75,7 @@ public class TestMultiplexedFileServer {
         for (int i = 0; i < switchCount; i++) {
             File dir = tmpDir[(i / dirCount) % dirCount]; //tmpDir[rand.nextInt(dirCount)];
             int file = rand.nextInt(fileCountPerDir);
-            byte raw[] = new byte[Math.min(maxBytesPerWrite, rand.nextInt(maxBytesPerWrite) + minBytesPerWrite)];
+            byte[] raw = new byte[Math.min(maxBytesPerWrite, rand.nextInt(maxBytesPerWrite) + minBytesPerWrite)];
             int val = i & 0xff;
             Arrays.fill(raw, (byte) val);
             MuxFileDirectory mfm = MuxFileDirectoryCache.getWriteableInstance(dir);
@@ -126,7 +126,7 @@ public class TestMultiplexedFileServer {
      */
     @Test
     public void test2() throws Exception {
-        final byte raw[] = new byte[4096];
+        final byte[] raw = new byte[4096];
         final File dir = Files.createTempDir();
         final MuxFileDirectory mfm = MuxFileDirectoryCache.getWriteableInstance(dir);
 

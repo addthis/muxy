@@ -282,7 +282,7 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
         for (ReadMuxFile oldFile : new ArrayList<>(fileMap.values())) {
             System.out.print(oldFile.getName() + ", ");
             MuxFile newFile = openFile(UUID.randomUUID().toString(), true);
-            byte buf[] = new byte[4096];
+            byte[] buf = new byte[4096];
             int read = 0;
             InputStream in = oldFile.read(0, decompress);
             OutputStream out = newFile.append(recompress);
@@ -384,12 +384,12 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
         }
 
         @Override
-        public void write(byte buf[]) throws IOException {
+        public void write(byte[] buf) throws IOException {
             write(buf, 0, buf.length);
         }
 
         @Override
-        public synchronized void write(byte buf[], int off, int len) throws IOException {
+        public synchronized void write(byte[] buf, int off, int len) throws IOException {
             checkStreamForWrite();
             currentStream.write(buf, off, len);
             bytesWritten += len;

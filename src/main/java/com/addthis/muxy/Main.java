@@ -50,7 +50,7 @@ public class Main {
         if (in == null || out == null) {
             return;
         }
-        byte buf[] = new byte[1024];
+        byte[] buf = new byte[1024];
         int read = 0;
         while ((read = in.read(buf)) > 0) {
             out.write(buf, 0, read);
@@ -58,7 +58,7 @@ public class Main {
         in.close();
     }
 
-    public static void main(String args[]) throws Exception {
+    public static void main(String[] args) throws Exception {
         if (args.length >= 2 && args[0].equals("ls")) {
             Collection<ReadMuxFile> list = null;
             if (args[1].equals("-l")) {

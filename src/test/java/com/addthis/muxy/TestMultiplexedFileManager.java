@@ -70,7 +70,7 @@ public class TestMultiplexedFileManager {
         public void event(MuxyFileEvent event, Object target) {
             if (verbose || watchedEvents.contains(event)) {
                 if (event == MuxyFileEvent.STREAM_EVENT) {
-                    Object o[] = (Object[]) target;
+                    Object[] o = (Object[]) target;
                     log.info(name + ".event.stream --> " + o[0] + " --> " + o[1]);
                 } else {
                     log.info("file." + name + ".event." + event + " --> " + target);
@@ -125,7 +125,7 @@ public class TestMultiplexedFileManager {
                 if (verbose2) {
                     log.info("test2 ITERATIONS " + iter + " CONCURRENCY " + conc);
                 }
-                MuxFile streams[] = createFileStream(mfs, iter, conc);
+                MuxFile[] streams = createFileStream(mfs, iter, conc);
                 for (MuxFile stream : streams) {
                     totalChars += validateFile(stream);
                     totalStreams++;
@@ -248,9 +248,9 @@ public class TestMultiplexedFileManager {
 //  }
 
     private MuxFile[] createFileStream(MuxFileDirectory mfs, int iter, int conc) throws Exception {
-        MuxFile meta[] = new MuxFile[conc];
-        OutputStream out[] = new OutputStream[conc];
-        String template[] = new String[conc];
+        MuxFile[] meta = new MuxFile[conc];
+        OutputStream[] out = new OutputStream[conc];
+        String[] template = new String[conc];
         for (int i = 0; i < meta.length; i++) {
             meta[i] = mfs.openFile("{" + nextFileName.incrementAndGet() + "}", true);
             out[i] = meta[i].append();

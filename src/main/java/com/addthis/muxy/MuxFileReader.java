@@ -73,12 +73,12 @@ class MuxFileReader extends InputStream {
     }
 
     @Override
-    public int read(byte buf[]) throws IOException {
+    public int read(byte[] buf) throws IOException {
         return fill() ? currentStream.read(buf) : -1;
     }
 
     @Override
-    public int read(byte buf[], int off, int len) throws IOException {
+    public int read(byte[] buf, int off, int len) throws IOException {
         return fill() ? currentStream.read(buf, off, len) : -1;
     }
 }
