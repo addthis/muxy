@@ -439,7 +439,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
             }
         }
 
-        void close() {
+        void close() throws IOException {
             // no one is writing a new block and no one is getting a new writer
             synchronized (openStreamWrites) {
                 publishEvent(MuxyStreamEvent.STREAM_CLOSE, meta);
@@ -457,6 +457,11 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                         outputBuffer.release();
                     } else if (outputBuffer.readableBytes() > 0) {
                         pendingStreamCloses.put(meta.streamID, this);
+                        // quick hack to try to prevent number of streams in a block from being > 2^8
+                        // TODO: better fix than this hack
+                        if (pendingStreamCloses.size() > 1000) {
+                            writeStreamsToBlock();
+                        }
                     } else {
                         outputBuffer.release();
                     }
