@@ -13,21 +13,11 @@
  */
 package com.addthis.muxy;
 
-import com.addthis.basis.util.Bytes;
-import com.addthis.basis.util.JitterClock;
-import com.addthis.basis.util.Parameter;
-import com.google.common.base.Objects;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
-import java.nio.file.Files;
-import java.nio.file.Path;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.UUID;
@@ -36,8 +26,24 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.GZIPOutputStream;
 
-import static java.nio.file.StandardCopyOption.*;
-import static java.nio.file.StandardOpenOption.*;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import com.addthis.basis.util.Bytes;
+import com.addthis.basis.util.JitterClock;
+import com.addthis.basis.util.Parameter;
+
+import com.google.common.base.Objects;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.WRITE;
 
 /**
  * Wraps MuxStreamDirectory to add file name to id mapping as
@@ -72,14 +78,14 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
     private FileChannel writeMutexFile;
     private FileLock writeMutexLock;
 
-    public MuxFileDirectory(Path dir, MuxyFileEventListener listener) throws Exception {
+    public MuxFileDirectory(Path dir, MuxyEventListener<MuxyFileEvent> listener) throws Exception {
         super(dir, listener);
         writeStreamMux = (MuxStreamDirectory) streamMux;
     }
 
     @Override
-    protected MuxStreamDirectory initMuxStreamDirectory(Path dir, MuxyFileEventListener listener) throws Exception {
-        return new MuxStreamDirectory(dir, listener == null ? null : new MuxyStreamEventListener() {
+    protected MuxStreamDirectory initMuxStreamDirectory(Path dir, MuxyEventListener<MuxyFileEvent> listener) throws Exception {
+        return new MuxStreamDirectory(dir, listener == null ? null : new MuxyEventListener<MuxyStreamEvent>() {
             @Override
             public void event(MuxyStreamEvent event, Object target) {
                 publishEvent(MuxyFileEvent.STREAM_EVENT, new Object[]{event, target});

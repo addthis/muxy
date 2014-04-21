@@ -14,7 +14,7 @@
 package com.addthis.muxy;
 
 /* tracks usage events */
-class TrackedFileEventListener implements MuxyFileEventListener {
+class TrackedFileEventListener implements MuxyEventListener<MuxyFileEvent> {
 
     TrackedMultiplexFileManager mfm;
 

@@ -77,14 +77,14 @@ public class ReadMuxStreamDirectory {
     protected final AtomicLong closeTime = new AtomicLong(0);
     protected FileChannel writeMutexFile;
     protected FileLock writeMutexLock;
-    protected MuxyStreamEventListener eventListener;
+    protected MuxyEventListener<MuxyStreamEvent> eventListener;
     protected boolean deleteFreed;
 
     public ReadMuxStreamDirectory(Path dir) throws Exception {
         this(dir, null);
     }
 
-    public ReadMuxStreamDirectory(Path dir, MuxyStreamEventListener listener) throws Exception {
+    public ReadMuxStreamDirectory(Path dir, MuxyEventListener<MuxyStreamEvent> listener) throws Exception {
         this.eventListener = listener;
         this.streamDirectory = dir.toRealPath();
         this.streamDirectoryConfig = new MuxDirectory(this);

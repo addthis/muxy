@@ -17,11 +17,15 @@ import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.EnumSet;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import java.nio.file.Path;
@@ -30,61 +34,33 @@ import com.addthis.basis.util.Bytes;
 import com.addthis.basis.util.Files;
 
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import static junit.framework.Assert.assertFalse;
-import static junit.framework.Assert.assertTrue;
-
 
 public class TestMultiplexedFileManager {
 
     private static final Logger log = LoggerFactory.getLogger(TestMultiplexedFileManager.class);
 
-    private static final boolean verbose1 = true;
-    private static final boolean verbose2 = false;
-    private static final boolean verbose3 = false;
-    private static final boolean verboseCreate = false;
-    private static final boolean verboseValidate = false;
-    private static final AtomicInteger nextFileName = new AtomicInteger(0);
-    private static final Set<MuxyFileEvent> watchedEvents = new HashSet<>();
+    private final AtomicInteger nextFileName = new AtomicInteger(0);
+    private final Set<MuxyFileEvent> debugEvents = EnumSet.noneOf(MuxyFileEvent.class);
+    private final Set<MuxyFileEvent> allEvents = EnumSet.allOf(MuxyFileEvent.class);
 
-    static {
-        watchedEvents.add(MuxyFileEvent.LOG_READ);
-        watchedEvents.add(MuxyFileEvent.LOG_COMPACT);
-        watchedEvents.add(MuxyFileEvent.CLOSED_ALL_FILE_WRITERS);
-    }
-
-    static class FileEventListener implements MuxyFileEventListener {
-
-        final boolean verbose;
-        final String name;
-
-        FileEventListener(boolean verbose, String name) {
-            this.verbose = verbose;
-            this.name = name;
-        }
-
-        @Override
-        public void event(MuxyFileEvent event, Object target) {
-            if (verbose || watchedEvents.contains(event)) {
-                if (event == MuxyFileEvent.STREAM_EVENT) {
-                    Object[] o = (Object[]) target;
-                    log.info(name + ".event.stream --> " + o[0] + " --> " + o[1]);
-                } else {
-                    log.info("file." + name + ".event." + event + " --> " + target);
-                }
-            }
-        }
+    @Before
+    public void addWatchedEvents() {
+        debugEvents.add(MuxyFileEvent.LOG_READ);
+        debugEvents.add(MuxyFileEvent.LOG_COMPACT);
+        debugEvents.add(MuxyFileEvent.CLOSED_ALL_FILE_WRITERS);
     }
 
     @Test
     public void test1() throws Exception {
+        EventLogger<MuxyFileEvent> eventLogger = new EventLogger<>("test1", allEvents);
         File fileDir = Files.createTempDir();
         Path dir = fileDir.toPath();
-        log.info("test1 TEMP DIR --> " + dir);
-        MuxFileDirectory mfs = new MuxFileDirectory(dir, new FileEventListener(verbose1, "test1"));
+        log.info("test1 TEMP DIR --> {}", dir);
+        MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger);
 
         MuxFile stream1 = createFileStream(mfs, 1, 1)[0];
         validateFile(stream1);
@@ -100,8 +76,8 @@ public class TestMultiplexedFileManager {
         validateFile(stream2);
         validateFile(stream1);
 
-        log.info("test1.files --> " + mfs.listFiles());
-        log.info("test1.streams --> " + mfs.getStreamManager().listStreams());
+        log.info("test1.files --> {}", mfs.listFiles());
+        log.info("test1.streams --> {}", mfs.getStreamManager().listStreams());
 
         mfs.waitForWriteClosure();
 
@@ -112,8 +88,11 @@ public class TestMultiplexedFileManager {
     public void test2() throws Exception {
         File fileDir = Files.createTempDir();
         Path dir = fileDir.toPath();
-        log.info("test2 TEMP DIR --> " + dir);
-        MuxFileDirectory mfs = new MuxFileDirectory(dir, new FileEventListener(verbose2, "test2"));
+        log.info("test2 TEMP DIR --> {}", dir);
+
+        EventLogger<MuxyFileEvent> eventLogger = new EventLogger<>("test2", debugEvents);
+        MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger);
+
         MuxFileDirectory.WRITE_THRASHOLD = 1024 * 1024;
         MuxFileDirectory.LAZY_LOG_CLOSE = 250;
 
@@ -122,9 +101,7 @@ public class TestMultiplexedFileManager {
 
         for (int iter = 1; iter < 5; iter++) {
             for (int conc = 1; conc < 50; conc++) {
-                if (verbose2) {
-                    log.info("test2 ITERATIONS " + iter + " CONCURRENCY " + conc);
-                }
+                log.debug("test2 ITERATIONS {} CONCURRENCY {}", iter, conc);
                 MuxFile[] streams = createFileStream(mfs, iter, conc);
                 for (MuxFile stream : streams) {
                     totalChars += validateFile(stream);
@@ -136,50 +113,52 @@ public class TestMultiplexedFileManager {
         // to force lazy close and log re-init
         Thread.sleep(500);
         long totalStreamBytes = 0;
-        log.info("test2 streams " + totalStreams + " chars " + totalChars);
+        log.info("test2 streams {} chars {}", totalStreams, totalChars);
         for (ReadMuxFile stream : mfs.listFiles()) {
             totalStreamBytes += stream.getLength();
-            if (verbose2) {
-                log.info("test2.file --> " + stream);
-            }
+            log.debug("test2.file --> {}", stream);
         }
-        log.info("test2 files " + totalStreams + " bytes " + totalStreamBytes);
-        log.info("test2 streams " + mfs.getStreamManager().listStreams().size());
+        log.info("test2 files {} bytes {}", totalStreams, totalStreamBytes);
+        log.info("test2 streams {}", mfs.getStreamManager().listStreams().size());
 
         mfs.waitForWriteClosure();
         TestMultiplexedFileStreams.deleteDirectory(dir.toFile());
     }
 
     @Test
-    public void test3() throws Exception {
+    public void test3() throws Throwable {
         File dirFile = Files.createTempDir();
         Path dir = dirFile.toPath();
-        log.info("test3 TEMP DIR --> " + dir);
+        log.info("test3 TEMP DIR --> {}", dir);
         final LinkedBlockingQueue<MuxFile> streams = new LinkedBlockingQueue<>();
-        final MuxFileDirectory mfs = new MuxFileDirectory(dir, new FileEventListener(verbose3, "test3"));
+
+        EventLogger<MuxyFileEvent> eventLogger = new EventLogger<>("test3", debugEvents);
+        final MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger);
         MuxFileDirectory.WRITE_THRASHOLD = 50 * 1024;
         MuxFileDirectory.LAZY_LOG_CLOSE = 250;
 
-        List<Thread> threads = new LinkedList<>();
+        ExecutorService executor = Executors.newCachedThreadPool();
+        Future<?>[] futures = new Future[50];
         for (int i = 0; i < 50; i++) {
-            Thread thread = new Thread() {
-                public void run() {
-                    try {
-                        MuxFile stream = createFileStream(mfs, 1000, 1)[0];
-                        validateFile(stream);
-                        streams.put(stream);
-                    } catch (Exception ex) {
-                        ex.printStackTrace();
-                    }
+            futures[i] = executor.submit(new Callable<Void>() {
+                public Void call() throws Exception {
+                    MuxFile stream = createFileStream(mfs, 1000, 1)[0];
+                    validateFile(stream);
+                    streams.put(stream);
+                    return null;
                 }
-            };
-            threads.add(thread);
-            thread.start();
+            });
         }
-        log.info("test 3 started " + threads.size() + " threads");
 
-        for (Thread thread : threads) {
-            thread.join();
+        executor.shutdown();
+        boolean result = executor.awaitTermination(30, TimeUnit.SECONDS);
+        Assert.assertTrue("executor did not shut down in 30 seconds", result);
+        try {
+            for (Future<?> future : futures) {
+                future.get();
+            }
+        } catch (ExecutionException ex) {
+            throw ex.getCause();
         }
 
         // to force lazy close and log re-init
@@ -189,10 +168,10 @@ public class TestMultiplexedFileManager {
         for (ReadMuxFile stream : mfs.listFiles()) {
             totalStreams++;
             totalStreamBytes += stream.getLength();
-            log.info("test3.file --> " + stream);
+            log.info("test3.file --> {}", stream);
         }
-        log.info("test3 files " + totalStreams + " bytes " + totalStreamBytes);
-        log.info("test3 streams " + mfs.getStreamManager().listStreams().size());
+        log.info("test3 files {} bytes {}", totalStreams, totalStreamBytes);
+        log.info("test3 streams {}", mfs.getStreamManager().listStreams().size());
 
         mfs.waitForWriteClosure();
         TestMultiplexedFileStreams.deleteDirectory(dir.toFile());
@@ -202,12 +181,14 @@ public class TestMultiplexedFileManager {
     public void testExists() throws Exception {
         File dirFile = Files.createTempDir();
         Path dir = dirFile.toPath();
-        log.info("testExists TEMP DIR --> " + dir);
-        final MuxFileDirectory mfs = new MuxFileDirectory(dir, new FileEventListener(verbose3, "testExists"));
-        assertFalse(mfs.exists("someNewFile"));
+        log.info("testExists TEMP DIR --> {}", dir);
+
+        EventLogger<MuxyFileEvent> eventLogger = new EventLogger<>("testExists", debugEvents);
+        final MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger);
+        Assert.assertFalse(mfs.exists("someNewFile"));
 
         MuxFile stream1 = createFileStream(mfs, 1, 1)[0];
-        assertTrue(mfs.exists(stream1.getName()));
+        Assert.assertTrue(mfs.exists(stream1.getName()));
     }
 
 //  @Test  TODO copied from stream test ... rework for files
@@ -266,15 +247,16 @@ public class TestMultiplexedFileManager {
         }
         for (int i = 0; i < meta.length; i++) {
             out[i].close();
+            boolean verboseCreate = false;
             if (verboseCreate) {
-                log.info("created file " + meta[i].getName());
+                log.info("created file {}", meta[i].getName());
             }
         }
         mfs.writeStreamMux.writeStreamsToBlock();
         return meta;
     }
 
-    private int validateFile(MuxFile meta) throws Exception {
+    private static int validateFile(MuxFile meta) throws Exception {
         InputStream in = meta.read(0);
         int iter = Bytes.readInt(in);
         int readString = 0;
@@ -282,17 +264,13 @@ public class TestMultiplexedFileManager {
             for (char c = 'a'; c < 'z'; c++) {
                 String read = Bytes.readString(in);
                 readString += read.length();
-                if (verboseValidate) {
-                    log.info("read." + c + " [" + read.length() + "] --> " + read);
-                }
+                log.debug("read.{} [{}] --> {}", c, read.length(), read);
                 Assert.assertTrue("fail contain " + c + " in " + read, read.indexOf(c) > 0);
                 Assert.assertTrue("fail 'file." + meta.getName() + "' in " + read, read.indexOf("file." + meta.getName()) > 0);
             }
         }
         in.close();
-        if (verboseValidate) {
-            log.info("validated file " + meta.getName() + " of " + readString + " chars");
-        }
+        log.debug("validated file {} of {} chars", meta.getName(), readString);
         return readString;
     }
 }

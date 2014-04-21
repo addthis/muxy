@@ -13,18 +13,9 @@
  */
 package com.addthis.muxy;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufOutputStream;
-import io.netty.buffer.CompositeByteBuf;
-import io.netty.buffer.PooledByteBufAllocator;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.io.OutputStream;
-import java.nio.channels.FileChannel;
-import java.nio.file.Files;
-import java.nio.file.Path;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -34,8 +25,22 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static java.nio.file.StandardCopyOption.*;
-import static java.nio.file.StandardOpenOption.*;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufOutputStream;
+import io.netty.buffer.CompositeByteBuf;
+import io.netty.buffer.PooledByteBufAllocator;
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+import static java.nio.file.StandardOpenOption.APPEND;
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.WRITE;
 
 /**
  * stream multiplexer. allows for a large number of append-only streams
@@ -60,7 +65,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
     protected final AtomicLong openWriteBytes = new AtomicLong(0);
     protected FileChannel openWriteFile;
 
-    public MuxStreamDirectory(Path dir, MuxyStreamEventListener listener) throws Exception {
+    public MuxStreamDirectory(Path dir, MuxyEventListener<MuxyStreamEvent> listener) throws Exception {
         super(dir, listener);
         this.deleteFreed = DELETE_FREED_FILES;
     }
