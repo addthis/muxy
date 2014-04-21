@@ -129,6 +129,7 @@ public class ReadMuxStreamDirectory {
         String fileMatch = Parameter.value("file-match", "out-*");
         // Stats to report
         long blocks = 0;
+        long fileBlocks = 0;
         long chunks = 0;
         Histogram chunkSize = Metrics.newHistogram(ReadMuxStreamDirectory.class, "chunkSize");
         Histogram blockSize = Metrics.newHistogram(ReadMuxStreamDirectory.class, "blockSize");
@@ -136,7 +137,6 @@ public class ReadMuxStreamDirectory {
 
 
         // Get stats
-        int currentFile = 1;
         Iterator<Path> dataFiles = Files.newDirectoryStream(streamDirectory, fileMatch).iterator();
         Path lastPath = dataFiles.next();
         long nextBlockPosition = 0;
@@ -156,7 +156,6 @@ public class ReadMuxStreamDirectory {
                 nextBlockPosition = 0;
             }
             // parse the next block
-            long currentBlock = blocks++;
             int countIDs = input.readShort();
             chunks += countIDs;
             chunksPerBlock.update(countIDs);
@@ -165,16 +164,16 @@ public class ReadMuxStreamDirectory {
                 int streamID = input.readInt();
                 streamList.add(streamID);
             }
-            int bodySize = input.readInt();
-            long currentPosition = input.getFilePointer();
+            int bodySize = input.readInt(); // (8 * countIDs) + sum of chunk lengths
+            long currentPosition = input.getFilePointer(); // currentBlockStart + 2 + (4 * countIDs) + 4
             long currentBlockStart = nextBlockPosition;
             nextBlockPosition = currentPosition + bodySize;
-            long currentBlockSize = nextBlockPosition - currentBlockStart;
+            long currentBlockSize = nextBlockPosition - currentBlockStart; // 2 + (4 * countIDs) + 4 + bodySize
             blockSize.update(currentBlockSize);
             if (currentBlockSize < tiny_block) {
                 log.info("Tiny block debug log");
                 log.info(Objects.toStringHelper("block")
-                        .add("block", currentBlock)
+                        .add("block", fileBlocks)
                         .add("chunks", countIDs)
                         .add("size", currentBlockSize)
                         .add("os-file", lastPath.getFileName().toString())
@@ -193,6 +192,8 @@ public class ReadMuxStreamDirectory {
                 int chunkLength = input.readInt();
                 chunkSize.update(chunkLength);
             }
+            fileBlocks += 1;
+            blocks += 1;
         }
 
         // Report stats

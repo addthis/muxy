@@ -33,10 +33,11 @@ public class Main {
 
     private static void usage() {
         System.out.println("file multiplexer usage:");
-        System.out.println("  append [file]          - append stdin to this file");
+//        System.out.println("  append [file]          - append stdin to this file");
         System.out.println("  cat [file_list]        - cat file list contents to stdout");
         System.out.println("  defrag [dir]           - defragment all files");
         System.out.println("  info [file]            - detailed file info");
+        System.out.println("  block-stat [dir]       - detailed block info");
         System.out.println("  ls [-ld] [dir]         - file list. -l long. -d detail.");
         System.out.println("  mode [file] [new_mode] - set file mode to: ra, a, r");
         System.out.println("  mv [file] [new_name]   - single file rename");
