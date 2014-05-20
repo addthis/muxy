@@ -28,7 +28,6 @@ import java.nio.file.Path;
 
 import com.addthis.basis.util.Parameter;
 
-import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import org.slf4j.Logger;
@@ -59,9 +58,8 @@ class MuxFileDirectoryCacheInstance {
     private final HashMap<Path, TrackedMultiplexFileManager> cache = new HashMap<>();
     private final AtomicInteger cacheEvictions = new AtomicInteger(0);
 
-    private final ScheduledExecutorService writableDirectoryCacheEvictor = MoreExecutors
-            .getExitingScheduledExecutorService(new ScheduledThreadPoolExecutor(1,
-                    new ThreadFactoryBuilder().setNameFormat("muxyDirectoryCacheEvictor=%d").build()));
+    private final ScheduledExecutorService writableDirectoryCacheEvictor = new ScheduledThreadPoolExecutor(1,
+                    new ThreadFactoryBuilder().setDaemon(true).setNameFormat("muxyDirectoryCacheEvictor=%d").build());
 
     public MuxFileDirectoryCacheInstance(int cacheTimer, int cacheDirMax, int cacheFileMax, int cacheStreamMax, int cacheBytesMax, int writeCacheDirLiner) {
         this.cacheTimer = cacheTimer;
