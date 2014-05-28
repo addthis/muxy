@@ -175,7 +175,7 @@ public class TestMultiplexedFileManager {
         }
 
         executor.shutdown();
-        boolean result = executor.awaitTermination(30, TimeUnit.SECONDS);
+        boolean result = executor.awaitTermination(600, TimeUnit.SECONDS);
         Assert.assertTrue("executor did not shut down in 30 seconds", result);
         try {
             for (Future<?> future : futures) {
