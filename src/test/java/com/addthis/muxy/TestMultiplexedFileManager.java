@@ -59,7 +59,7 @@ public class TestMultiplexedFileManager {
     public static void addWatchedEvents() {
         debugEvents.add(MuxyFileEvent.LOG_READ);
         debugEvents.add(MuxyFileEvent.LOG_COMPACT);
-        debugEvents.add(MuxyFileEvent.CLOSED_ALL_FILE_WRITERS);
+//        debugEvents.add(MuxyFileEvent.CLOSED_ALL_FILE_WRITERS);
 
         int i = 0;
         for (char c = 'a'; c <= 'z'; c++) {
