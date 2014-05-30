@@ -14,12 +14,19 @@
 package com.addthis.muxy;
 
 /* tracks usage events */
-class TrackedFileEventListener implements MuxyEventListener<MuxyFileEvent> {
+class TrackedFileEventListener implements MuxyEventListener {
 
     TrackedMultiplexFileManager mfm;
 
     @Override
-    public void event(MuxyFileEvent event, Object target) {
+    public void streamEvent(MuxyStreamEvent event, Object target) {
+        if (event == MuxyStreamEvent.STREAM_CREATE) {
+            mfm.cacheInstance.reportNewStreams(1);
+        }
+    }
+
+    @Override
+    public void fileEvent(MuxyFileEvent event, Object target) {
         if (event == MuxyFileEvent.LOG_COMPACT) {
             mfm.releaseAfter(1000);
         }
@@ -27,5 +34,10 @@ class TrackedFileEventListener implements MuxyEventListener<MuxyFileEvent> {
 
     void setTrackedInstance(TrackedMultiplexFileManager mfm) {
         this.mfm = mfm;
+    }
+
+    @Override
+    public void reportWrite(long bytes) {
+        mfm.cacheInstance.reportWrite(bytes);
     }
 }

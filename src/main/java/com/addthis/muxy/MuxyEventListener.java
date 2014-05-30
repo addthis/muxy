@@ -14,7 +14,9 @@
 package com.addthis.muxy;
 
 /* for optionally listening to internal events */
-public interface MuxyEventListener<E extends Enum<E>> {
+public interface MuxyEventListener extends WriteTracker {
 
-    public void event(E event, Object target);
+    public void streamEvent(MuxyStreamEvent event, Object target);
+
+    public void fileEvent(MuxyFileEvent event, Object target);
 }

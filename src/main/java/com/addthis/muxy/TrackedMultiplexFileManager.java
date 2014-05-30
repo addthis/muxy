@@ -23,8 +23,8 @@ public final class TrackedMultiplexFileManager extends MuxFileDirectory {
     long releaseTime;
     long prevBytes;
 
-    TrackedMultiplexFileManager(Path dir, TrackedFileEventListener listener) throws Exception {
-        super(dir, listener);
+    TrackedMultiplexFileManager(Path dir, TrackedFileEventListener listener, MuxFileDirectoryCacheInstance cacheInstance) throws Exception {
+        super(dir, listener, cacheInstance);
         listener.setTrackedInstance(this);
     }
 

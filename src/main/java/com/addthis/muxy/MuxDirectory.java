@@ -38,6 +38,7 @@ class MuxDirectory {
     protected int maxFileSize = DEFAULT_FILE_SIZE;
     protected int lockReleaseTimeout = 1000; // defaults to one second
     protected int streamMapSize = ReadMuxStreamDirectory.DEFAULT_MAP_SIZE; // see below: read, not written
+
     private final ReadMuxStreamDirectory muxStreamDirectory;
 
     public MuxDirectory(ReadMuxStreamDirectory muxStreamDirectory) {

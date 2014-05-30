@@ -54,7 +54,7 @@ public class ReadMuxFileDirectory {
     protected static final int DEFAULT_MAP_SIZE = Parameter.intValue("muxy.file.map.default.size", 257);
 
     protected final ReadMuxStreamDirectory streamMux;
-    protected final MuxyEventListener<MuxyFileEvent> eventListener;
+    protected final MuxyEventListener eventListener;
     protected final Path streamDirectory;
     protected final Path fileMetaLog;
     protected final Path fileMetaConfig;
@@ -73,7 +73,7 @@ public class ReadMuxFileDirectory {
         this(dir, null);
     }
 
-    public ReadMuxFileDirectory(Path dir, MuxyEventListener<MuxyFileEvent> listener) throws Exception {
+    public ReadMuxFileDirectory(Path dir, MuxyEventListener listener) throws Exception {
         try {
             this.eventListener = listener;
             this.streamMux = initMuxStreamDirectory(dir, listener);
@@ -89,13 +89,8 @@ public class ReadMuxFileDirectory {
         }
     }
 
-    protected ReadMuxStreamDirectory initMuxStreamDirectory(Path dir, MuxyEventListener<MuxyFileEvent> listener) throws Exception {
-        return new ReadMuxStreamDirectory(dir, listener == null ? null : new MuxyEventListener<MuxyStreamEvent>() {
-            @Override
-            public void event(MuxyStreamEvent event, Object target) {
-                publishEvent(MuxyFileEvent.STREAM_EVENT, new Object[]{event, target});
-            }
-        });
+    protected ReadMuxStreamDirectory initMuxStreamDirectory(Path dir, MuxyEventListener listener) throws Exception {
+        return new ReadMuxStreamDirectory(dir, listener);
     }
 
     public int getFileCount() {
@@ -126,7 +121,7 @@ public class ReadMuxFileDirectory {
 
     public void publishEvent(MuxyFileEvent ID, Object target) {
         if (eventListener != null) {
-            eventListener.event(ID, target);
+            eventListener.fileEvent(ID, target);
         }
     }
 

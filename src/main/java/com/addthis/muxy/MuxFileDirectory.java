@@ -21,7 +21,7 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.GZIPOutputStream;
@@ -31,6 +31,7 @@ import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import com.addthis.basis.collect.ConcurrentHashMapV8;
 import com.addthis.basis.util.Bytes;
 import com.addthis.basis.util.JitterClock;
 import com.addthis.basis.util.Parameter;
@@ -57,7 +58,7 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
     private static final Logger log = LoggerFactory.getLogger(MuxFileDirectory.class);
 
     // max size for a sub-stream in KB. Mostly for testing / debugging
-    static int STREAM_MAXSIZE = Parameter.intValue("STREAM_MAXSIZE", 0) * 1024;
+    static final int STREAM_MAXSIZE = Parameter.intValue("STREAM_MAXSIZE", 0) * 1024;
     // write thrashing threshold
     static int WRITE_THRASHOLD = Parameter.intValue("muxy.write.thrashold", 10) * 1024 * 1024;
     // lazy log close delay (defaults to 500ms)
@@ -69,28 +70,30 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
     // time to wait before attempting to write out dir map after last close
     static int WRITE_CLOSE_GRACE_TIME = Parameter.intValue("muxy.file.write.close", 10000);
 
-    private final ConcurrentHashMap<StreamsWriter, StreamsWriter> openFileWrites = new ConcurrentHashMap<>();
-    final AtomicLong globalBytesWritten = new AtomicLong(0);
+    private final ConcurrentMap<StreamsWriter, StreamsWriter> openFileWrites = new ConcurrentHashMapV8<>();
     private final AtomicBoolean releaseComplete = new AtomicBoolean(true);
     private final AtomicLong closeTime = new AtomicLong(0);
     protected final MuxStreamDirectory writeStreamMux;
+    protected final MuxFileDirectoryCacheInstance cacheInstance;
+
+    final AtomicLong globalBytesWritten = new AtomicLong(0);
 
     private FileChannel writeMutexFile;
     private FileLock writeMutexLock;
 
-    public MuxFileDirectory(Path dir, MuxyEventListener<MuxyFileEvent> listener) throws Exception {
+    public MuxFileDirectory(Path dir, MuxyEventListener listener) throws Exception {
+        this(dir, listener, MuxFileDirectoryCache.DEFAULT);
+    }
+
+    public MuxFileDirectory(Path dir, MuxyEventListener listener, MuxFileDirectoryCacheInstance cacheInstance) throws Exception {
         super(dir, listener);
+        this.cacheInstance = cacheInstance;
         writeStreamMux = (MuxStreamDirectory) streamMux;
     }
 
     @Override
-    protected MuxStreamDirectory initMuxStreamDirectory(Path dir, MuxyEventListener<MuxyFileEvent> listener) throws Exception {
-        return new MuxStreamDirectory(dir, listener == null ? null : new MuxyEventListener<MuxyStreamEvent>() {
-            @Override
-            public void event(MuxyStreamEvent event, Object target) {
-                publishEvent(MuxyFileEvent.STREAM_EVENT, new Object[]{event, target});
-            }
-        });
+    protected MuxStreamDirectory initMuxStreamDirectory(Path dir, MuxyEventListener listener) throws Exception {
+        return new MuxStreamDirectory(dir, listener);
     }
 
     @Override

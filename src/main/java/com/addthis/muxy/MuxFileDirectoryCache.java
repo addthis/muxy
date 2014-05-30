@@ -29,7 +29,7 @@ public class MuxFileDirectoryCache {
     private static final Logger log = LoggerFactory.getLogger(MuxFileDirectoryCache.class);
 
     // for managing at-most-once instance of MFM per dir per JVM
-    private static final MuxFileDirectoryCacheInstance DEFAULT = new MuxFileDirectoryCacheInstance.Builder().build();
+    public static final MuxFileDirectoryCacheInstance DEFAULT = new MuxFileDirectoryCacheInstance.Builder().build();
 
     public static boolean tryEvict(MuxFileDirectory muxDir) {
         return DEFAULT.tryEvict(muxDir);
@@ -51,7 +51,7 @@ public class MuxFileDirectoryCache {
         return DEFAULT.getCacheByteSize();
     }
 
-    public static int getCacheStreamSize() {
+    public static long getCacheStreamSize() {
         return DEFAULT.getCacheStreamSize();
     }
 

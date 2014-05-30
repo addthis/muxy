@@ -41,6 +41,8 @@ import org.junit.rules.TemporaryFolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static com.addthis.muxy.MuxFileDirectoryCache.DEFAULT;
+
 public class TestMultiplexedFileManager {
 
     private static final Logger log = LoggerFactory.getLogger(TestMultiplexedFileManager.class);
@@ -69,11 +71,11 @@ public class TestMultiplexedFileManager {
 
     @Test
     public void simpleValidate() throws Exception {
-        EventLogger<MuxyFileEvent> eventLogger = new EventLogger<>("simpleValidate", allEvents);
+        EventLogger eventLogger = new EventLogger("simpleValidate", allEvents);
         File fileDir = tempFolder.newFolder();
         Path dir = fileDir.toPath();
         log.info("test1 TEMP DIR --> {}", dir);
-        MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger);
+        MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger, DEFAULT);
 
         MuxFile stream1 = createWriteMetas(mfs, 2, 1)[0].meta;
         validateFile(stream1);
@@ -83,11 +85,11 @@ public class TestMultiplexedFileManager {
 
     @Test
     public void test1() throws Exception {
-        EventLogger<MuxyFileEvent> eventLogger = new EventLogger<>("test1", allEvents);
+        EventLogger eventLogger = new EventLogger("test1", allEvents);
         File fileDir = tempFolder.newFolder();
         Path dir = fileDir.toPath();
         log.info("test1 TEMP DIR --> {}", dir);
-        MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger);
+        MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger, DEFAULT);
 
         MuxFile stream1 = createWriteMetas(mfs, 1, 1)[0].meta;
         validateFile(stream1);
@@ -115,8 +117,8 @@ public class TestMultiplexedFileManager {
         Path dir = fileDir.toPath();
         log.info("test2 TEMP DIR --> {}", dir);
 
-        EventLogger<MuxyFileEvent> eventLogger = new EventLogger<>("test2", debugEvents);
-        MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger);
+        EventLogger eventLogger = new EventLogger("test2", debugEvents);
+        MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger, DEFAULT);
 
         MuxFileDirectory.WRITE_THRASHOLD = 1024 * 1024;
         MuxFileDirectory.LAZY_LOG_CLOSE = 250;
@@ -156,8 +158,8 @@ public class TestMultiplexedFileManager {
         log.info("test3 TEMP DIR --> {}", dir);
         final LinkedBlockingQueue<MuxFile> streams = new LinkedBlockingQueue<>();
 
-        EventLogger<MuxyFileEvent> eventLogger = new EventLogger<>("test3", debugEvents);
-        final MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger);
+        EventLogger eventLogger = new EventLogger("test3", debugEvents);
+        final MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger, DEFAULT);
         MuxFileDirectory.WRITE_THRASHOLD = 50 * 1024;
         MuxFileDirectory.LAZY_LOG_CLOSE = 250;
 
@@ -206,8 +208,8 @@ public class TestMultiplexedFileManager {
         Path dir = dirFile.toPath();
         log.info("testExists TEMP DIR --> {}", dir);
 
-        EventLogger<MuxyFileEvent> eventLogger = new EventLogger<>("testExists", debugEvents);
-        final MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger);
+        EventLogger eventLogger = new EventLogger("testExists", debugEvents);
+        final MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger, DEFAULT);
         Assert.assertFalse(mfs.exists("someNewFile"));
 
         MuxFile stream1 = createWriteMetas(mfs, 1, 1)[0].meta;

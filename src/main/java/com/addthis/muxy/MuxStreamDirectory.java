@@ -63,7 +63,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
     protected final AtomicLong openWriteBytes = new AtomicLong(0);
     protected FileChannel openWriteFile;
 
-    public MuxStreamDirectory(Path dir, MuxyEventListener<MuxyStreamEvent> listener) throws Exception {
+    public MuxStreamDirectory(Path dir, MuxyEventListener listener) throws Exception {
         super(dir, listener);
         this.deleteFreed = DELETE_FREED_FILES;
     }
@@ -303,7 +303,6 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
             meta = stream.meta;
             data = stream.outputBuffer;
             snapshotLength = data.readableBytes();
-            openWriteBytes.addAndGet(-snapshotLength);
         }
     }
 
@@ -373,6 +372,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                         assert numBytesRead > 0;
                         toWrite -= numBytesRead;
                     }
+                    openWriteBytes.addAndGet((long) -out.snapshotLength);
                     out.meta.endFile = streamDirectoryConfig.getCurrentFile();
                     out.meta.endFileBlockOffset = currentFileOffset;
                     if (out.meta.startFile == 0) {
@@ -392,17 +392,6 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
             }
         }
         return writtenBytes;
-    }
-
-    private void maybeWriteBlock() throws IOException {
-        // burp out a block if we hit a threshold
-        if (openWriteBytes.get() >= streamDirectoryConfig.maxBlockSize) {
-            synchronized (openStreamWrites) {
-                if (openWriteBytes.get() >= streamDirectoryConfig.maxBlockSize) {
-                    writeStreamsToBlock();
-                }
-            }
-        }
     }
 
     /* wrapper for writing into chunks */
@@ -425,7 +414,6 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
         }
 
         void write(int b) throws IOException {
-            maybeWriteBlock();
             synchronized (this) {
                 if (outputBuffer.capacity() == 0) {
                     outputBuffer.ensureWritable(BUFFER_MIN_SIZE);
@@ -434,18 +422,20 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                 openWriteBytes.addAndGet(1);
                 meta.bytes += 1;
             }
+            eventListener.reportWrite(1);
         }
 
         void write(final byte[] b, final int off, final int len) throws IOException {
-            maybeWriteBlock();
             synchronized (this) {
                 if (outputBuffer.capacity() == 0) {
                     outputBuffer.ensureWritable(BUFFER_MIN_SIZE);
                 }
                 output.write(b, off, len);
                 openWriteBytes.addAndGet(len);
+
                 meta.bytes += len;
             }
+            eventListener.reportWrite(len);
         }
 
         void close() throws IOException {

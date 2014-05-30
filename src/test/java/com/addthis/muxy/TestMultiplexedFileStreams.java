@@ -72,7 +72,7 @@ public class TestMultiplexedFileStreams {
         File dirFile = tempFolder.newFolder();
         Path dir = dirFile.toPath();
         log.info("test1 TEMP DIR --> {}", dir);
-        EventLogger<MuxyStreamEvent> eventLogger = new EventLogger<>("test1", debugEvents);
+        EventLogger eventLogger = new EventLogger("test1", debugEvents);
         MuxStreamDirectory mfs = new MuxStreamDirectory(dir, eventLogger);
         mfs.setMaxBlockSize(1000);
         mfs.setMaxFileSize(10000);
@@ -95,7 +95,7 @@ public class TestMultiplexedFileStreams {
 
         log.info("test1.streams.preclose --> {}", mfs.listStreams());
 
-        EventLogger<MuxyStreamEvent> validationEventLogger = new EventLogger<>("validate-test1", debugEvents);
+        EventLogger validationEventLogger = new EventLogger("validate-test1", debugEvents);
         ReadMuxStreamDirectory mfs2 = new ReadMuxStreamDirectory(dir, validationEventLogger);
         log.info("test1.streams.postopen --> {}", mfs2.listStreams());
         validateStream(mfs2, stream4);
@@ -108,7 +108,7 @@ public class TestMultiplexedFileStreams {
     public void test2() throws Exception {
         File dir = tempFolder.newFolder();
         log.info("test2 TEMP DIR --> {}", dir);
-        EventLogger<MuxyStreamEvent> eventLogger = new EventLogger<>("test2", debugEvents);
+        EventLogger eventLogger = new EventLogger("test2", debugEvents);
         MuxStreamDirectory mfs = new MuxStreamDirectory(dir.toPath(), eventLogger);
         mfs.setMaxBlockSize(50000); // 50K
         mfs.setMaxFileSize(10000000); // 10MB
@@ -149,7 +149,7 @@ public class TestMultiplexedFileStreams {
         File dir = tempFolder.newFolder();
         log.info("test3 TEMP DIR --> {}", dir);
         final LinkedBlockingQueue<MuxStream> streams = new LinkedBlockingQueue<>();
-        EventLogger<MuxyStreamEvent> eventLogger = new EventLogger<>("test3", debugEvents);
+        EventLogger eventLogger = new EventLogger("test3", debugEvents);
         final MuxStreamDirectory mfs = new MuxStreamDirectory(dir.toPath(), eventLogger);
         mfs.setMaxBlockSize(100 * 1024);
         mfs.setMaxFileSize(10 * 1024 * 1024);
@@ -191,7 +191,7 @@ public class TestMultiplexedFileStreams {
 
         log.info("test3 post-re-open validating streams: {}", streams.size());
 
-        EventLogger<MuxyStreamEvent> validationEventLogger = new EventLogger<>("validate-test3", debugEvents);
+        EventLogger validationEventLogger = new EventLogger("validate-test3", debugEvents);
         ReadMuxStreamDirectory mfs2 = new ReadMuxStreamDirectory(dir.toPath(), validationEventLogger);
         for (MuxStream meta : streams) {
             validateStream(mfs2, meta);
@@ -204,7 +204,7 @@ public class TestMultiplexedFileStreams {
         log.info("deleteAll TEMP DIR --> {}", dir);
         final LinkedBlockingQueue<MuxStream> streams = new LinkedBlockingQueue<>();
 
-        EventLogger<MuxyStreamEvent> eventLogger = new EventLogger<>("deleteAll", debugEvents);
+        EventLogger eventLogger = new EventLogger("deleteAll", debugEvents);
         final MuxStreamDirectory mfs = new MuxStreamDirectory(dir, eventLogger);
         mfs.setDeleteFreed(true);
         mfs.setMaxBlockSize(100 * 1024);
