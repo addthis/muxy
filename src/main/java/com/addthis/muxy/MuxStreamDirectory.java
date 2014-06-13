@@ -373,6 +373,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                         toWrite -= numBytesRead;
                     }
                     openWriteBytes.addAndGet((long) -out.snapshotLength);
+                    eventListener.reportWrite((long) -out.snapshotLength);
                     out.meta.endFile = streamDirectoryConfig.getCurrentFile();
                     out.meta.endFileBlockOffset = currentFileOffset;
                     if (out.meta.startFile == 0) {
