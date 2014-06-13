@@ -298,7 +298,7 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
     @Override
     public void reportWrite(long bytes) {
         long newPendingBytes = openWriteBytes.addAndGet(bytes);
-        if (newPendingBytes > cacheBytesMax) {
+        if ((bytes > 0) && (newPendingBytes > cacheBytesMax)) {
             doEviction();
         }
     }
