@@ -78,7 +78,7 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
             Arrays.sort(tmfm, new Comparator<TrackedMultiplexFileManager>() {
                 @Override
                 public int compare(TrackedMultiplexFileManager o1, TrackedMultiplexFileManager o2) {
-                    return (int) (o1.releaseTime - o2.releaseTime);
+                    return Long.compare(o1.releaseTime, o2.releaseTime);
                 }
             });
             long cachedStreams = getCacheStreamSize();
