@@ -24,11 +24,8 @@ import java.nio.file.Path;
 import com.addthis.basis.util.Parameter;
 
 import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.cache.Weigher;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.SettableFuture;
 
 import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.Gauge;
@@ -90,24 +87,7 @@ public class ReadMuxFileDirectoryCache {
                     }
             )
             .build(
-                   new CacheLoader<Path, ReadMuxFileDirectory>() {
-
-                        public ReadMuxFileDirectory load(Path dir) throws Exception {
-                            ReadMuxFileDirectory mfm = new ReadMuxFileDirectory(dir);
-                            return mfm;
-                        }
-
-                        public ListenableFuture<ReadMuxFileDirectory> reload(final Path dir, final ReadMuxFileDirectory oldValue) throws Exception {
-                            SettableFuture<ReadMuxFileDirectory> task = SettableFuture.create();
-                            if (dir.toRealPath().equals(oldValue.getDirectory())) {
-                                task.set(oldValue);
-                                return task;
-                            } else {
-                                task.set(load(dir));
-                                return task;
-                            }
-                        }
-                    }
+                    new ReadMuxFileDirectoryCacheLoader()
             );
 
     public static int getCacheDirSize() {

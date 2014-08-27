@@ -86,7 +86,7 @@ public class ReadMuxStreamDirectory {
 
     public ReadMuxStreamDirectory(Path dir, MuxyEventListener listener) throws Exception {
         this.eventListener = listener;
-        this.streamDirectory = dir.toRealPath();
+        this.streamDirectory = dir;
         this.streamDirectoryConfig = new MuxDirectory(this);
         this.dirMetaFile = streamDirectory.resolve("mfs.conf");
         this.dirDataFile = streamDirectory.resolve("mfs.data");
