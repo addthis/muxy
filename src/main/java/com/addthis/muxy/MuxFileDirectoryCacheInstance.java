@@ -128,8 +128,10 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
                     }
                 }
             }
-            //if we are still over the max, then ignore the equality heuristic
-            if (cachedBytes > cacheBytesMax) {
+            //if we are still over the max, then ignore the equality heuristic. we check getCacheByteSize()
+            //  again just to make an edge case where a huge write was done by someone else less likely to
+            //  lead to needlessly small writes.
+            if ((cachedBytes > cacheBytesMax) && (getCacheByteSize() > cacheBytesMax)) {
                 tmfm = cache.values().toArray(new TrackedMultiplexFileManager[cache.size()]);
                 Arrays.sort(tmfm, new Comparator<TrackedMultiplexFileManager>() //sort largest first
                 {
@@ -159,15 +161,12 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
     public boolean tryEvict(MuxFileDirectory muxDir) {
         cacheLock.lock();
         try {
-            TrackedMultiplexFileManager[] tmfm = cache.values().toArray(new TrackedMultiplexFileManager[cache.size()]);
-            for (TrackedMultiplexFileManager mfm : tmfm) {
-                if (mfm == muxDir) {
-                    muxDir.waitForWriteClosure(0);
-                    cache.remove(mfm.getDirectory());
-                    streamCount.addAndGet(-mfm.writeStreamMux.size());
-                    cacheEvictions.incrementAndGet();
-                    return true;
-                }
+            if (cache.containsKey(muxDir.getDirectory())) {
+                muxDir.waitForWriteClosure(0);
+                cache.remove(muxDir.getDirectory());
+                streamCount.addAndGet(-muxDir.writeStreamMux.size());
+                cacheEvictions.incrementAndGet();
+                return true;
             }
         } finally {
             cacheLock.unlock();
@@ -243,7 +242,7 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
             if (mfm == null) {
                 mfm = new TrackedMultiplexFileManager(realPath, new TrackedFileEventListener(), this);
                 cache.put(realPath, mfm);
-                reportNewStreams((long) mfm.writeStreamMux.size());
+                reportStreams((long) mfm.writeStreamMux.size());
                 if (cache.size() > cacheDirMax) {
                     doEviction();
                 }
@@ -274,8 +273,23 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
         return mfm;
     }
 
-    public static final class Builder {
+    @Override
+    public void reportWrite(long bytes) {
+        long newPendingBytes = openWriteBytes.addAndGet(bytes);
+        if ((bytes > 0) && (newPendingBytes > cacheBytesMax)) {
+            doEviction();
+        }
+    }
 
+    @Override
+    public void reportStreams(long streams) {
+        long newStreamCount = streamCount.addAndGet(streams);
+        if ((streams > 0) && (newStreamCount > cacheStreamMax)) {
+            doEviction();
+        }
+    }
+
+    public static final class Builder {
         private int cacheTimer = CACHE_TIMER;
         private int cacheDirMax = CACHE_DIR_MAX;
         private int cacheFileMax = CACHE_FILE_MAX;
@@ -326,21 +340,6 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
 
         public MuxFileDirectoryCacheInstance build() {
             return new MuxFileDirectoryCacheInstance(this);
-        }
-    }
-
-    @Override
-    public void reportWrite(long bytes) {
-        long newPendingBytes = openWriteBytes.addAndGet(bytes);
-        if ((bytes > 0) && (newPendingBytes > cacheBytesMax)) {
-            doEviction();
-        }
-    }
-
-    void reportNewStreams(long streams) {
-        long newStreamCount = streamCount.addAndGet(streams);
-        if (newStreamCount > cacheStreamMax) {
-            doEviction();
         }
     }
 }

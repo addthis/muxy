@@ -19,11 +19,7 @@ class TrackedFileEventListener implements MuxyEventListener {
     TrackedMultiplexFileManager mfm;
 
     @Override
-    public void streamEvent(MuxyStreamEvent event, Object target) {
-        if (event == MuxyStreamEvent.STREAM_CREATE) {
-            mfm.cacheInstance.reportNewStreams(1);
-        }
-    }
+    public void streamEvent(MuxyStreamEvent event, Object target) {}
 
     @Override
     public void fileEvent(MuxyFileEvent event, Object target) {
@@ -39,5 +35,10 @@ class TrackedFileEventListener implements MuxyEventListener {
     @Override
     public void reportWrite(long bytes) {
         mfm.cacheInstance.reportWrite(bytes);
+    }
+
+    @Override
+    public void reportStreams(long streams) {
+        mfm.cacheInstance.reportStreams(streams);
     }
 }

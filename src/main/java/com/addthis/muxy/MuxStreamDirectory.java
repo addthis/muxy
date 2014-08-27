@@ -198,6 +198,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
             openWritesLock.unlock();
         }
         publishEvent(MuxyStreamEvent.STREAM_CREATE, meta);
+        eventListener.reportStreams(1);
         return meta;
     }
 

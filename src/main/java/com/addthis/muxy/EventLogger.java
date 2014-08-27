@@ -50,6 +50,11 @@ class EventLogger implements MuxyEventListener {
     }
 
     @Override
+    public void reportStreams(long streams) {
+        MuxFileDirectoryCache.DEFAULT.reportStreams(streams);
+    }
+
+    @Override
     public void streamEvent(MuxyStreamEvent event, Object target) {
         event(event, target);
     }

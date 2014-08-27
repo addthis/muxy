@@ -15,5 +15,19 @@ package com.addthis.muxy;
 
 public interface WriteTracker {
 
+    /**
+     * Should be called to report any change in the number of bytes that waiting to be flushed.
+     *
+     * Must not be called with a positive value while holding any locks that would prevent flushing
+     * pending writes, or optimistic close attempts (ie. waitForWriteClosure(0)).
+     */
     void reportWrite(long bytes);
+
+    /**
+     * Should be called to report any change in the number of streams.
+     *
+     * Must not be called with a positive value while holding any locks that would prevent flushing
+     * pending writes, or optimistic close attempts (ie. waitForWriteClosure(0)).
+     */
+    void reportStreams(long streams);
 }
