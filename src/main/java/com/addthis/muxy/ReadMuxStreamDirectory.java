@@ -19,7 +19,6 @@ import java.io.InputStream;
 import java.io.RandomAccessFile;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -237,7 +236,7 @@ public class ReadMuxStreamDirectory {
     }
 
     public Collection<MuxStream> listStreams() throws IOException {
-        return Arrays.asList(streamDirectoryMap.values().toArray(new MuxStream[streamDirectoryMap.size()]));
+        return new ArrayList<>(streamDirectoryMap.values());
     }
 
     public int size() {

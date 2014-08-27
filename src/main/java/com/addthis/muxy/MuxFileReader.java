@@ -48,8 +48,9 @@ class MuxFileReader extends InputStream {
                 currentStream.close();
             }
             if (streams.hasNext()) {
-                currentStream = multiplexedFileManager.getStreamManager().findStream(streams.next())
-                        .read();
+                currentStream = multiplexedFileManager.getStreamManager()
+                                                      .findStream(streams.next())
+                                                      .read();
                 if (uncompress) {
                     currentStream = new GZIPInputStream(currentStream);
                 }
