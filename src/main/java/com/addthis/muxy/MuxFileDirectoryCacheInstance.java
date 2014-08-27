@@ -104,7 +104,7 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
                     cachedStreams -= mfm.writeStreamMux.size();
                     streamCount.addAndGet(-mfm.writeStreamMux.size());
                     cacheEvictions.incrementAndGet();
-                    if (log.isDebugEnabled()) {
+                    if (log.isDebugEnabled()) { // non-trivial arg cost
                         log.debug("flush.ok {} files={} complete={}",
                                   mfm.getDirectory(), mfm.getFileCount(), mfm.isWritingComplete());
                     }
@@ -122,20 +122,20 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
                     } else {
                         mfm.prevBytes = currentBytes;
                     }
-                    if (log.isDebugEnabled()) {
+                    if (log.isDebugEnabled()) { // non-trivial arg cost
                         log.debug("flush.skip {} files={} complete={}",
                                   mfm.getDirectory(), mfm.getFileCount(), mfm.isWritingComplete());
                     }
                 }
             }
-            if (cachedBytes > cacheBytesMax) //if we are still over the max, then ignore the equality heuristic
-            {
+            //if we are still over the max, then ignore the equality heuristic
+            if (cachedBytes > cacheBytesMax) {
                 tmfm = cache.values().toArray(new TrackedMultiplexFileManager[cache.size()]);
                 Arrays.sort(tmfm, new Comparator<TrackedMultiplexFileManager>() //sort largest first
                 {
                     @Override
                     public int compare(TrackedMultiplexFileManager o1, TrackedMultiplexFileManager o2) {
-                        return (int) (o2.prevBytes - o1.prevBytes); //reversed
+                        return Long.compare(o2.prevBytes,  o1.prevBytes); //intentionally reversed
                     }
                 });
                 for (TrackedMultiplexFileManager mfm : tmfm) {
@@ -283,8 +283,7 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
         private long cacheBytesMax = CACHE_BYTES_MAX;
         private int writeCacheDirLiner = WRITE_CACHE_DIR_LINGER;
 
-        public Builder() {
-        }
+        public Builder() {}
 
         public Builder(MuxFileDirectoryCacheInstance copy) {
             cacheTimer = copy.cacheTimer;
