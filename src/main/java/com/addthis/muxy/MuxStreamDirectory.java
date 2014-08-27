@@ -302,25 +302,28 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
         }
     }
 
-    /* really need to not be using byte array output streams */
-    protected void trimOutputBuffers() {
-        openWritesLock.lock();
-        try {
-            for (StreamOut out : openStreamWrites.values()) {
-                synchronized (out) {
-                    if (out.outputBuffer.readableBytes() == 0) {
-                        out.outputBuffer.capacity(0);
-                    } else {
-                        out.outputBuffer.discardReadBytes();
-                        if (out.outputBuffer instanceof CompositeByteBuf) {
-                            ((CompositeByteBuf) out.outputBuffer).consolidate();
+    /** Trims memory overhead if the openWritesLock is immediately available. */
+    protected boolean maybeTrimOutputBuffers() {
+        if (openWritesLock.tryLock()) {
+            try {
+                for (StreamOut out : openStreamWrites.values()) {
+                    synchronized (out) {
+                        if (out.outputBuffer.readableBytes() == 0) {
+                            out.outputBuffer.capacity(0);
+                        } else {
+                            out.outputBuffer.discardReadBytes();
+                            if (out.outputBuffer instanceof CompositeByteBuf) {
+                                ((CompositeByteBuf) out.outputBuffer).consolidate();
+                            }
                         }
                     }
                 }
+            } finally {
+                openWritesLock.unlock();
             }
-        } finally {
-            openWritesLock.unlock();
+            return true;
         }
+        return false;
     }
 
     /* hold temp data for writing */

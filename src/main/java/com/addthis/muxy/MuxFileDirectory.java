@@ -160,9 +160,8 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
                 return false;
             }
             if (JitterClock.globalTime() > maxWait) {
-                if (log.isWarnEnabled()) {
-                    log.warn("waitForWriteClosure() timeout=" + waitTime + " openFileWrites=" + openFileWrites.size() + " released=" + releaseComplete + " dir=" + streamDirectory);
-                }
+                log.warn("waitForWriteClosure() timeout={} openFileWrites={} released={} dir={}",
+                         waitTime, openFileWrites.size(), releaseComplete, streamDirectory);
                 if (EXIT_CLOSURE_TIMEOUT_FORCE) {
                     synchronized (openFileWrites) {
                         for (StreamsWriter writer : openFileWrites.values()) {

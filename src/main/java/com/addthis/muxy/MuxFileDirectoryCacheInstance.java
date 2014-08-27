@@ -86,7 +86,8 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
             for (TrackedMultiplexFileManager mfm : tmfm) {
                 long currentBytes = mfm.writeStreamMux.openWriteBytes.get();
                 if (((cache.size() > cacheDirMax) || (cachedStreams > cacheStreamMax))
-                    && mfm.checkRelease() && mfm.waitForWriteClosure(0)) {
+                    && mfm.checkRelease()
+                    && mfm.waitForWriteClosure(0)) {
                     cache.remove(mfm.getDirectory());
                     cachedStreams -= mfm.writeStreamMux.size();
                     streamCount.addAndGet(-mfm.writeStreamMux.size());
@@ -104,12 +105,13 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
                         }
                         mfm.prevBytes = 0; //perhaps not true but fine
                     } else if ((currentBytes == 0) && (mfm.prevBytes == 0)) {
-                        mfm.writeStreamMux.trimOutputBuffers();
+                        mfm.writeStreamMux.maybeTrimOutputBuffers();
                     } else {
                         mfm.prevBytes = currentBytes;
                     }
                     if (log.isDebugEnabled()) {
-                        log.debug("flush.skip " + mfm.getDirectory() + " files=" + mfm.getFileCount() + " complete=" + mfm.isWritingComplete());
+                        log.debug("flush.skip {} files={} complete={}",
+                                  mfm.getDirectory(), mfm.getFileCount(), mfm.isWritingComplete());
                     }
                 }
             }
