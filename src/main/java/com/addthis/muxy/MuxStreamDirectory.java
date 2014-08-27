@@ -13,6 +13,8 @@
  */
 package com.addthis.muxy;
 
+import javax.annotation.concurrent.GuardedBy;
+
 import java.io.IOException;
 import java.io.OutputStream;
 
@@ -20,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
@@ -58,10 +61,11 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
     // we will use a small default and let the more common large-buffer case pay the price.
     private static final int BUFFER_MIN_SIZE = Integer.getInteger("muxy.buffer.min", 511);
 
-    /* openStreamWrites also acts as a barrier for all writing threads when global updates happen */
-    protected final HashMap<Integer, StreamOut> openStreamWrites = new HashMap<>();
+    /* openWritesLock also acts as a barrier for all writing threads when global updates happen */
     protected final ReentrantLock openWritesLock = new ReentrantLock();
-    protected final HashMap<Integer, StreamOut> pendingStreamCloses = new HashMap<>();
+    @GuardedBy("openWritesLock") protected final Map<Integer, StreamOut> openStreamWrites = new HashMap<>();
+
+    protected final Map<Integer, StreamOut> pendingStreamCloses = new HashMap<>();
     protected final AtomicLong openWriteBytes = new AtomicLong(0);
     protected FileChannel openWriteFile;
 

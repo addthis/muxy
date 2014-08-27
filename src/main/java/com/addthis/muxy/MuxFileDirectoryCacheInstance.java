@@ -13,6 +13,8 @@
  */
 package com.addthis.muxy;
 
+import javax.annotation.concurrent.GuardedBy;
+
 import java.io.File;
 import java.io.IOException;
 
@@ -22,6 +24,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import java.nio.file.Path;
 
@@ -52,28 +56,36 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
     final long cacheBytesMax;
     final int writeCacheDirLiner;
 
-    private final Map<Path, TrackedMultiplexFileManager> cache = new HashMap<>();
+    private final Lock cacheLock = new ReentrantLock();
+    @GuardedBy("cacheLock") private final Map<Path, TrackedMultiplexFileManager> cache;
+
     private final AtomicInteger cacheEvictions = new AtomicInteger(0);
     private final AtomicLong openWriteBytes = new AtomicLong(0);
     private final AtomicLong streamCount = new AtomicLong(0);
 
-    public MuxFileDirectoryCacheInstance(int cacheTimer, int cacheDirMax, int cacheFileMax, long cacheStreamMax,
-            long cacheBytesMax, int writeCacheDirLiner) {
+    public MuxFileDirectoryCacheInstance(int cacheTimer,
+                                         int cacheDirMax,
+                                         int cacheFileMax,
+                                         long cacheStreamMax,
+                                         long cacheBytesMax,
+                                         int writeCacheDirLiner) {
         this.cacheTimer = cacheTimer;
         this.cacheDirMax = cacheDirMax;
         this.cacheFileMax = cacheFileMax;
         this.cacheStreamMax = cacheStreamMax;
         this.cacheBytesMax = cacheBytesMax;
         this.writeCacheDirLiner = writeCacheDirLiner;
+        this.cache = new HashMap<>(cacheDirMax);
     }
 
     private MuxFileDirectoryCacheInstance(Builder builder) {
         this(builder.cacheTimer, builder.cacheDirMax, builder.cacheFileMax,
-                builder.cacheStreamMax, builder.cacheBytesMax, builder.writeCacheDirLiner);
+             builder.cacheStreamMax, builder.cacheBytesMax, builder.writeCacheDirLiner);
     }
 
     private void doEviction() {
-        synchronized (cache) {
+        cacheLock.lock();
+        try {
             TrackedMultiplexFileManager[] tmfm = cache.values().toArray(new TrackedMultiplexFileManager[cache.size()]);
             Arrays.sort(tmfm, new Comparator<TrackedMultiplexFileManager>() {
                 @Override
@@ -93,7 +105,8 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
                     streamCount.addAndGet(-mfm.writeStreamMux.size());
                     cacheEvictions.incrementAndGet();
                     if (log.isDebugEnabled()) {
-                        log.debug("flush.ok {} files={} complete={}", mfm.getDirectory(), mfm.getFileCount(), mfm.isWritingComplete());
+                        log.debug("flush.ok {} files={} complete={}",
+                                  mfm.getDirectory(), mfm.getFileCount(), mfm.isWritingComplete());
                     }
                     cachedBytes -= currentBytes; //not as accurate as the return from wSTB but fine
                 } else {
@@ -138,11 +151,14 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
                     }
                 }
             }
+        } finally {
+            cacheLock.unlock();
         }
     }
 
     public boolean tryEvict(MuxFileDirectory muxDir) {
-        synchronized (cache) {
+        cacheLock.lock();
+        try {
             TrackedMultiplexFileManager[] tmfm = cache.values().toArray(new TrackedMultiplexFileManager[cache.size()]);
             for (TrackedMultiplexFileManager mfm : tmfm) {
                 if (mfm == muxDir) {
@@ -153,12 +169,15 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
                     return true;
                 }
             }
+        } finally {
+            cacheLock.unlock();
         }
         return false;
     }
 
     public boolean tryClear() {
-        synchronized (cache) {
+        cacheLock.lock();
+        try {
             TrackedMultiplexFileManager[] tmfm = cache.values().toArray(new TrackedMultiplexFileManager[cache.size()]);
             for (TrackedMultiplexFileManager mfm : tmfm) {
                 if (mfm.waitForWriteClosure(0)) {
@@ -168,12 +187,17 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
                 }
             }
             return getCacheDirSize() == 0;
+        } finally {
+            cacheLock.unlock();
         }
     }
 
     public int getCacheDirSize() {
-        synchronized (cache) {
+        cacheLock.lock();
+        try {
             return cache.size();
+        } finally {
+            cacheLock.unlock();
         }
     }
 
@@ -190,12 +214,15 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
     }
 
     public int getCacheFileSize() {
-        synchronized (cache) {
+        cacheLock.lock();
+        try {
             int size = 0;
             for (MuxFileDirectory mfm : cache.values()) {
                 size += mfm.getFileCount();
             }
             return size;
+        } finally {
+            cacheLock.unlock();
         }
     }
 
@@ -209,7 +236,8 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
         if (dir == null) {
             return null;
         }
-        synchronized (cache) {
+        cacheLock.lock();
+        try {
             final Path realPath = dir.toRealPath();
             TrackedMultiplexFileManager mfm = cache.get(realPath);
             if (mfm == null) {
@@ -222,13 +250,18 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
             }
             mfm.releaseAfter(writeCacheDirLiner);
             return mfm;
+        } finally {
+            cacheLock.unlock();
         }
     }
 
     public void waitForWriteClosure() {
         MuxFileDirectory[] list = null;
-        synchronized (cache) {
+        cacheLock.lock();
+        try {
             list = cache.values().toArray(new MuxFileDirectory[cache.size()]);
+        } finally {
+            cacheLock.unlock();
         }
         for (MuxFileDirectory mfm : list) {
             mfm.waitForWriteClosure();
