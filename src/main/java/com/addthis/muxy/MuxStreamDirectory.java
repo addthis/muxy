@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
@@ -59,6 +60,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
 
     /* openStreamWrites also acts as a barrier for all writing threads when global updates happen */
     protected final HashMap<Integer, StreamOut> openStreamWrites = new HashMap<>();
+    protected final ReentrantLock openWritesLock = new ReentrantLock();
     protected final HashMap<Integer, StreamOut> pendingStreamCloses = new HashMap<>();
     protected final AtomicLong openWriteBytes = new AtomicLong(0);
     protected FileChannel openWriteFile;
@@ -76,8 +78,11 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
     }
 
     public boolean isWritingComplete() {
-        synchronized (openStreamWrites) {
+        openWritesLock.lock();
+        try {
             return openStreamWrites.isEmpty() && releaseComplete.get();
+        } finally {
+            openWritesLock.unlock();
         }
     }
 
@@ -88,10 +93,13 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
       */
     public void waitForWriteClosure() {
         while (true) {
-            synchronized (openStreamWrites) {
+            openWritesLock.lock();
+            try {
                 if (isWritingComplete() || completeRelease()) {
                     return;
                 }
+            } finally {
+                openWritesLock.unlock();
             }
             try {
                 Thread.sleep(100);
@@ -175,45 +183,62 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
     }
 
     public MuxStream createStream() throws IOException {
-        synchronized (openStreamWrites) {
+        MuxStream meta;
+        openWritesLock.lock();
+        try {
             int newMetaId = reserveStreamID();
-            MuxStream meta = new MuxStream(this, newMetaId);
+            meta = new MuxStream(this, newMetaId);
             streamDirectoryMap.put(meta.streamID, meta);
-            publishEvent(MuxyStreamEvent.STREAM_CREATE, meta);
-            return meta;
+        } finally {
+            openWritesLock.unlock();
         }
+        publishEvent(MuxyStreamEvent.STREAM_CREATE, meta);
+        return meta;
     }
 
     @Override
     public Collection<MuxStream> listStreams() throws IOException {
-        synchronized (openStreamWrites) {
+        openWritesLock.lock();
+        try {
             return super.listStreams();
+        } finally {
+            openWritesLock.unlock();
         }
     }
 
     @Override
     public int size() {
-        synchronized (openStreamWrites) {
+        openWritesLock.lock();
+        try {
             return super.size();
+        } finally {
+            openWritesLock.unlock();
         }
     }
 
     @Override
     public MuxStream findStream(int streamID) throws IOException {
-        synchronized (openStreamWrites) {
+        openWritesLock.lock();
+        try {
             return super.findStream(streamID);
+        } finally {
+            openWritesLock.unlock();
         }
     }
 
     @Override
     public Collection<Path> getActiveFiles() throws IOException {
-        synchronized (openStreamWrites) {
+        openWritesLock.lock();
+        try {
             return super.getActiveFiles();
+        } finally {
+            openWritesLock.unlock();
         }
     }
 
     protected MuxStream deleteStream(final int streamID) throws IOException {
-        synchronized (openStreamWrites) {
+        openWritesLock.lock();
+        try {
             MuxStream deletedMeta = streamDirectoryMap.remove(streamID);
             if (deletedMeta == null) {
                 throw new IOException("No Such Stream ID " + streamID + " in " + streamDirectory);
@@ -224,7 +249,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                 int startFileId   = startFile;
                 int[] fileSpansPerStart = new int[currentFileId - startFileId + 1];
                 log.trace("current {} start {} length {}", currentFileId, startFileId,
-                        (currentFileId - startFileId) + 1);
+                          (currentFileId - startFileId) + 1);
                 for (MuxStream meta : streamDirectoryMap.values()) {
                     fileSpansPerStart[meta.startFile - startFileId] =
                             Math.max(fileSpansPerStart[meta.startFile - startFileId], meta.endFile);
@@ -253,12 +278,15 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                 }
             }
             return deletedMeta;
+        } finally {
+            openWritesLock.unlock();
         }
     }
 
     /* increment previous part record and start a new part */
     public OutputStream appendStream(MuxStream meta) throws IOException {
-        synchronized (openStreamWrites) {
+        openWritesLock.lock();
+        try {
             acquireWritable();
             meta = findStream(meta.streamID);
             StreamOut streamOut = openStreamWrites.get(meta.streamID);
@@ -269,12 +297,15 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
             publishEvent(MuxyStreamEvent.STREAM_APPEND, meta);
             releaseComplete.set(false);
             return streamOut.getWriter();
+        } finally {
+            openWritesLock.unlock();
         }
     }
 
     /* really need to not be using byte array output streams */
     protected void trimOutputBuffers() {
-        synchronized (openStreamWrites) {
+        openWritesLock.lock();
+        try {
             for (StreamOut out : openStreamWrites.values()) {
                 synchronized (out) {
                     if (out.outputBuffer.readableBytes() == 0) {
@@ -287,6 +318,8 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                     }
                 }
             }
+        } finally {
+            openWritesLock.unlock();
         }
     }
 
@@ -309,7 +342,8 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
     /* called when block threshold, close or timeout is hit */
     protected long writeStreamsToBlock() throws IOException {
         long writtenBytes = 0;
-        synchronized (openStreamWrites) {
+        openWritesLock.lock();
+        try {
             /* yes, this could be optimized for concurrency by writing after lock is released, etc */
             if (openWriteBytes.get() == 0) {
                 return 0;
@@ -391,6 +425,8 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                 openWriteFile = FileChannel.open(getFileByID(streamDirectoryConfig.getNextFile()), APPEND, CREATE);
                 publishEvent(MuxyStreamEvent.BLOCK_FILE_WRITE_ROLL, streamDirectoryConfig.currentFile);
             }
+        } finally {
+            openWritesLock.unlock();
         }
         return writtenBytes;
     }
@@ -441,7 +477,8 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
 
         void close() throws IOException {
             // no one is writing a new block and no one is getting a new writer
-            synchronized (openStreamWrites) {
+            openWritesLock.lock();
+            try {
                 publishEvent(MuxyStreamEvent.STREAM_CLOSE, meta);
                 if (writers.decrementAndGet() == 0) {       // there are no other valid writers nor will be
                     publishEvent(MuxyStreamEvent.STREAM_CLOSED_ALL, meta);
@@ -466,6 +503,8 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                         outputBuffer.release();
                     }
                 }
+            } finally {
+                openWritesLock.unlock();
             }
         }
     }
