@@ -93,13 +93,14 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
       */
     public void waitForWriteClosure() {
         while (true) {
-            openWritesLock.lock();
-            try {
-                if (isWritingComplete() || completeRelease()) {
-                    return;
+            if (openWritesLock.tryLock()) {
+                try {
+                    if (isWritingComplete() || completeRelease()) {
+                        return;
+                    }
+                } finally {
+                    openWritesLock.unlock();
                 }
-            } finally {
-                openWritesLock.unlock();
             }
             try {
                 Thread.sleep(100);
