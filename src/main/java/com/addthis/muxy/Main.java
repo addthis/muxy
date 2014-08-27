@@ -128,7 +128,10 @@ public class Main {
             ReadMuxFileDirectoryCache.getResolvedInstance(file.getParentFile()).getStreamManager().blockStat();
         } else if (args.length > 1 && args[0].equals("info")) {
             File file = new File(args[1]);
-            ReadMuxFileDirectoryCache.getResolvedInstance(file.getParentFile()).openFile(file.getName(), false).detail();
+            String details = ReadMuxFileDirectoryCache.getResolvedInstance(file.getParentFile())
+                                                      .openFile(file.getName(), false)
+                                                      .detail();
+            System.out.println(details);
         } else if (args.length == 3 && args[0].equals("mv")) {
             File oldName = new File(args[1]);
             File newName = new File(args[2]);

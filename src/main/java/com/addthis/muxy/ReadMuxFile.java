@@ -23,6 +23,7 @@ import java.util.List;
 
 import com.addthis.basis.util.Bytes;
 
+import com.google.common.base.Objects;
 import com.google.common.primitives.Ints;
 
 /** */
@@ -61,22 +62,6 @@ public class ReadMuxFile {
         streamIDs = new int[count];
         for (int i = 0; i < count; i++) {
             streamIDs[i] = (int) Bytes.readLength(in);
-        }
-    }
-
-    @Override
-    public String toString() {
-        return "MuxFile:" + fileID + "," + fileName + "," + length + "," + lastModified + "," + getStreamIDs().size();
-    }
-
-    public void detail() throws IOException {
-        System.out.println("fileID: " + fileID);
-        System.out.println("fileName: " + fileName);
-        System.out.println("lastMod: " + lastModified);
-        System.out.println("mode: always read/append");
-        System.out.println("streamIDs: " + getStreamIDs().size());
-        for (MuxStream meta : getStreams()) {
-            System.out.println("  " + meta);
         }
     }
 
@@ -132,5 +117,28 @@ public class ReadMuxFile {
 
     public InputStream read() throws IOException {
         return read(0);
+    }
+
+    @Override public String toString() {
+        return Objects.toStringHelper(this)
+                      .add("fileID", fileID)
+                      .add("fileName", fileName)
+                      .add("length", length)
+                      .add("lastModified", lastModified)
+                      .add("dir", dir)
+                      .add("streamIDs.length", streamIDs.length)
+                      .toString();
+    }
+
+    public String detail() throws IOException {
+        return Objects.toStringHelper(this)
+                      .add("fileID", fileID)
+                      .add("fileName", fileName)
+                      .add("length", length)
+                      .add("lastModified", lastModified)
+                      .add("dir", dir)
+                      .add("streamIDs.length", streamIDs.length)
+                      .add("streamIDs", getStreams())
+                      .toString();
     }
 }
