@@ -13,6 +13,8 @@
  */
 package com.addthis.muxy;
 
+import javax.annotation.Nullable;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -40,9 +42,10 @@ public class ReadMuxFile {
     protected long lastModified;
 
     protected final ReadMuxFileDirectory dir;
-    protected final int[] streamIDs;
+    @Nullable protected final int[] streamIDs;
 
-    public ReadMuxFile(ReadMuxFileDirectory dir) {
+    /** Should only be used by subclasses that override getStreamIDs(). */
+    protected ReadMuxFile(ReadMuxFileDirectory dir) {
         this.dir = dir;
         streamIDs = null;
     }
@@ -86,6 +89,7 @@ public class ReadMuxFile {
     }
 
     public List<Integer> getStreamIDs() {
+        assert streamIDs != null : "if streamIDs might be null, you must override this method";
         return Ints.asList(streamIDs);
     }
 
@@ -126,7 +130,7 @@ public class ReadMuxFile {
                       .add("length", length)
                       .add("lastModified", lastModified)
                       .add("dir", dir)
-                      .add("streamIDs.length", streamIDs.length)
+                      .add("streamIDs.length", getStreamIDs().size())
                       .toString();
     }
 
@@ -137,7 +141,7 @@ public class ReadMuxFile {
                       .add("length", length)
                       .add("lastModified", lastModified)
                       .add("dir", dir)
-                      .add("streamIDs.length", streamIDs.length)
+                      .add("streamIDs.length", getStreamIDs().size())
                       .add("streamIDs", getStreams())
                       .toString();
     }
