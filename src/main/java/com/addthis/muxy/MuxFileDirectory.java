@@ -64,11 +64,11 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
     // lazy log close delay (defaults to 500ms)
     static int LAZY_LOG_CLOSE = Parameter.intValue("muxy.close.wait", 1000);
     // max time to block waiting for all writers to exit (in seconds)
-    static int EXIT_CLOSURE_TIMEOUT = Parameter.intValue("muxy.exit.timeout", 300) * 1000;
+    static final int EXIT_CLOSURE_TIMEOUT = Parameter.intValue("muxy.exit.timeout", 300) * 1000;
     // force closure after exit timeout
-    static boolean EXIT_CLOSURE_TIMEOUT_FORCE = Parameter.boolValue("muxy.exit.timeout.force", true);
+    static final boolean EXIT_CLOSURE_TIMEOUT_FORCE = Parameter.boolValue("muxy.exit.timeout.force", true);
     // time to wait before attempting to write out dir map after last close
-    static int WRITE_CLOSE_GRACE_TIME = Parameter.intValue("muxy.file.write.close", 10000);
+    static final int WRITE_CLOSE_GRACE_TIME = Parameter.intValue("muxy.file.write.close", 10000);
 
     private final ConcurrentMap<StreamsWriter, StreamsWriter> openFileWrites = new ConcurrentHashMapV8<>();
     private final AtomicBoolean releaseComplete = new AtomicBoolean(true);

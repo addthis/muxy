@@ -47,7 +47,7 @@ public class ReadMuxFileDirectory {
     private static final Logger log = LoggerFactory.getLogger(ReadMuxFileDirectory.class);
 
     // trip-wire to prevent OOMs on too many records in directory
-    protected static int MAX_RECORDS_READ = Parameter.intValue("muxy.file.max.records", 1000000);
+    protected static final int MAX_RECORDS_READ = Parameter.intValue("muxy.file.max.records", 1000000);
     // return directory lists in sorted order
     protected static final boolean SORTED_DIR = Parameter.boolValue("muxy.dir.sorted", false);
     // optimize read only file reads (when hint is available)
