@@ -20,6 +20,7 @@ import java.io.OutputStream;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import java.nio.file.Files;
+import java.nio.file.Path;
 
 import com.addthis.basis.util.Bytes;
 import com.addthis.basis.util.Parameter;
@@ -28,69 +29,20 @@ import com.addthis.basis.util.Parameter;
 class MuxDirectory {
 
     // Default block size in MB. default-default is 5
-    protected static final int DEFAULT_BLOCK_SIZE = Parameter.intValue("muxy.default.block.size", 5) * 1024 * 1024;
+    static final int DEFAULT_BLOCK_SIZE = Parameter.intValue("muxy.default.block.size", 5) * 1024 * 1024;
     // Default file size in MB. default-default is 100
-    protected static final int DEFAULT_FILE_SIZE = Parameter.intValue("muxy.default.file.size", 100) * 1024 * 1024;
+    static final int DEFAULT_FILE_SIZE = Parameter.intValue("muxy.default.file.size", 100) * 1024 * 1024;
 
-    protected final AtomicInteger currentFile = new AtomicInteger(1);
-    protected final AtomicInteger nextStreamID = new AtomicInteger(1);
-    protected int maxBlockSize = DEFAULT_BLOCK_SIZE;
-    protected int maxFileSize = DEFAULT_FILE_SIZE;
-    protected int lockReleaseTimeout = 1000; // defaults to one second
-    protected int streamMapSize = ReadMuxStreamDirectory.DEFAULT_MAP_SIZE; // see below: read, not written
+    final AtomicInteger currentFile = new AtomicInteger(1);
+    final AtomicInteger nextStreamID = new AtomicInteger(1);
+    int maxBlockSize = DEFAULT_BLOCK_SIZE;
+    int maxFileSize = DEFAULT_FILE_SIZE;
+    int lockReleaseTimeout = 1000; // defaults to one second
+    int streamMapSize = ReadMuxStreamDirectory.DEFAULT_MAP_SIZE; // see below: read, not written
 
-    private final ReadMuxStreamDirectory muxStreamDirectory;
-
-    public MuxDirectory(ReadMuxStreamDirectory muxStreamDirectory) {
-        this.muxStreamDirectory = muxStreamDirectory;
-    }
-
-    public int getCurrentFile() {
-        return currentFile.get();
-    }
-
-    public int getNextFile() throws IOException {
-        try {
-            return currentFile.incrementAndGet();
-        } finally {
-            write();
-        }
-    }
-
-    public int getBlockTriggerSize() {
-        return maxBlockSize;
-    }
-
-    public int getNextStreamID() throws IOException {
-        try {
-            return nextStreamID.incrementAndGet();
-        } finally {
-            write();
-        }
-    }
-
-    public int getFileTriggerSize() {
-        return maxFileSize;
-    }
-
-    public void setBlockTriggerSize(int size) throws IOException {
-        maxBlockSize = size;
-        write();
-    }
-
-    public void setFileTriggerSize(int size) throws IOException {
-        maxFileSize = size;
-        write();
-    }
-
-    public void setLockReleaseTimeout(int timeout) throws IOException {
-        lockReleaseTimeout = timeout;
-        write();
-    }
-
-    protected void read() throws IOException {
-        if (Files.isRegularFile(muxStreamDirectory.dirMetaFile)) {
-            try (InputStream in = Files.newInputStream(muxStreamDirectory.dirMetaFile)) {
+    protected void read(Path dirMetaFile) throws IOException {
+        if (Files.isRegularFile(dirMetaFile)) {
+            try (InputStream in = Files.newInputStream(dirMetaFile)) {
                 currentFile.set(Bytes.readInt(in));
                 nextStreamID.set(Bytes.readInt(in));
                 maxBlockSize = Bytes.readInt(in);
@@ -104,15 +56,15 @@ class MuxDirectory {
         }
     }
 
-    protected void write() throws IOException {
-        try (OutputStream out = Files.newOutputStream(muxStreamDirectory.dirMetaFile)) {
+    protected void write(Path dirMetaFile, int streamMapSize) throws IOException {
+        try (OutputStream out = Files.newOutputStream(dirMetaFile)) {
             Bytes.writeInt(currentFile.get(), out);
             Bytes.writeInt(nextStreamID.get(), out);
             Bytes.writeInt(maxBlockSize, out);
             Bytes.writeInt(maxFileSize, out);
             Bytes.writeInt(lockReleaseTimeout, out);
             // use as hint for allocation of map
-            Bytes.writeInt(muxStreamDirectory.streamDirectoryMap.size(), out);
+            Bytes.writeInt(streamMapSize, out);
         }
     }
 

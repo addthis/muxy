@@ -85,10 +85,10 @@ public class ReadMuxStreamDirectory {
     public ReadMuxStreamDirectory(Path dir, MuxyEventListener listener) throws Exception {
         this.eventListener = listener;
         this.streamDirectory = dir;
-        this.streamDirectoryConfig = new MuxDirectory(this);
+        this.streamDirectoryConfig = new MuxDirectory();
         this.dirMetaFile = streamDirectory.resolve("mfs.conf");
         this.dirDataFile = streamDirectory.resolve("mfs.data");
-        streamDirectoryConfig.read();
+        streamDirectoryConfig.read(dirMetaFile);
         this.streamDirectoryMap = new HashMap<>(streamDirectoryConfig.streamMapSize);
         readMetaLog();
     }
@@ -99,25 +99,6 @@ public class ReadMuxStreamDirectory {
 
     public static Path getFileByID(Path streamDirectory, int fileID) {
         return streamDirectory.resolve(fileFormat.format(fileID));
-    }
-
-    /* force new "current" file -- used in defrag operations */
-    protected int bumpCurrentFile() throws IOException {
-        return streamDirectoryConfig.getNextFile();
-    }
-
-    protected int reserveStreamID() throws IOException {
-        return streamDirectoryConfig.getNextStreamID();
-    }
-
-    public void setMaxBlockSize(int size) throws IOException {
-        streamDirectoryConfig.maxBlockSize = size;
-        streamDirectoryConfig.write();
-    }
-
-    public void setMaxFileSize(int size) throws IOException {
-        streamDirectoryConfig.maxFileSize = size;
-        streamDirectoryConfig.write();
     }
 
     protected void publishEvent(MuxyStreamEvent ID, Object target) {
@@ -150,7 +131,7 @@ public class ReadMuxStreamDirectory {
             if (input.getFilePointer() >= input.length()) {
                 input.close();
                 if (!dataFiles.hasNext()) {
-                    log.info("ran out of mux data files after : " + lastPath.toString());
+                    log.info("ran out of mux data files after : {}", lastPath.toString());
                     break;
                 }
                 lastPath = dataFiles.next();
@@ -175,12 +156,12 @@ public class ReadMuxStreamDirectory {
             if (currentBlockSize < tiny_block) {
                 log.info("Tiny block debug log");
                 log.info(Objects.toStringHelper("block")
-                        .add("block", fileBlocks)
-                        .add("chunks", countIDs)
-                        .add("size", currentBlockSize)
-                        .add("os-file", lastPath.getFileName().toString())
-                        .add("position", currentPosition)
-                        .toString());
+                                .add("block", fileBlocks)
+                                .add("chunks", countIDs)
+                                .add("size", currentBlockSize)
+                                .add("os-file", lastPath.getFileName().toString())
+                                .add("position", currentPosition)
+                                .toString());
                 StringBuilder sb = new StringBuilder();
                 for (Integer i : streamList) {
                     sb.append(i);
@@ -200,17 +181,17 @@ public class ReadMuxStreamDirectory {
 
         // Report stats
         log.info("### Printing stats");
-        log.info("Total blocks : " + blocks);
-        log.info("Total chunks : " + chunks);
-        log.info("Median Chunks per Block : " + chunksPerBlock.getSnapshot().getMedian());
-        log.info("05th Percentile Chunks per Block : " + chunksPerBlock.getSnapshot().getValue(0.05));
-        log.info("95th Percentile Chunks per Block : " + chunksPerBlock.getSnapshot().get95thPercentile());
-        log.info("Median Block Size : " + blockSize.getSnapshot().getMedian());
-        log.info("Median Chunk Size : " + chunkSize.getSnapshot().getMedian());
-        log.info("05th Percentile Block Size : " + blockSize.getSnapshot().getValue(0.05));
-        log.info("05th Percentile Chunk Size : " + chunkSize.getSnapshot().getValue(0.05));
-        log.info("95th Percentile Block Size : " + blockSize.getSnapshot().get95thPercentile());
-        log.info("95th Percentile Chunk Size : " + chunkSize.getSnapshot().get95thPercentile());
+        log.info("Total blocks : {}", blocks);
+        log.info("Total chunks : {}", chunks);
+        log.info("Median Chunks per Block : {}", chunksPerBlock.getSnapshot().getMedian());
+        log.info("05th Percentile Chunks per Block : {}", chunksPerBlock.getSnapshot().getValue(0.05));
+        log.info("95th Percentile Chunks per Block : {}", chunksPerBlock.getSnapshot().get95thPercentile());
+        log.info("Median Block Size : {}", blockSize.getSnapshot().getMedian());
+        log.info("Median Chunk Size : {}", chunkSize.getSnapshot().getMedian());
+        log.info("05th Percentile Block Size : {}", blockSize.getSnapshot().getValue(0.05));
+        log.info("05th Percentile Chunk Size : {}", chunkSize.getSnapshot().getValue(0.05));
+        log.info("95th Percentile Block Size : {}", blockSize.getSnapshot().get95thPercentile());
+        log.info("95th Percentile Chunk Size : {}", chunkSize.getSnapshot().get95thPercentile());
     }
 
     /* only runs once in constructor */
@@ -226,7 +207,7 @@ public class ReadMuxStreamDirectory {
                         throw new IOException("max records " + MAX_RECORDS_READ + " exceeded @ " + streamDirectory);
                     }
                 } catch (EOFException ex) {
-                    log.warn("Hit EOF Exception while reading meta log for : " + streamDirectory, ex);
+                    log.warn("Hit EOF Exception while reading meta log for : {}", streamDirectory, ex);
                     break;
                 } catch (Exception ex) {
                     throw new IOException(ex);

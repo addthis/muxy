@@ -127,12 +127,12 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
 
     /* pass through config */
     public void setMaxBlockSize(int size) throws IOException {
-        streamMux.setMaxBlockSize(size);
+        writeStreamMux.setMaxBlockSize(size);
     }
 
     /* pass through config */
     public void setMaxFileSize(int size) throws IOException {
-        streamMux.setMaxFileSize(size);
+        writeStreamMux.setMaxFileSize(size);
     }
 
     public boolean isWritingComplete() {
@@ -282,8 +282,8 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
         int file_size = Parameter.intValue("file-size", 100) * 1024 * 1024;
         boolean decompress = Parameter.boolValue("decompress", false);
         boolean recompress = Parameter.boolValue("recompress", false);
-        streamMux.setMaxBlockSize(block_size);
-        streamMux.setMaxFileSize(file_size);
+        writeStreamMux.setMaxBlockSize(block_size);
+        writeStreamMux.setMaxFileSize(file_size);
 
         int firstNew = writeStreamMux.bumpCurrentFile();
         System.out.println("defragging: " + fileMap.size() + " files into chunks starting with " + MuxStreamDirectory.formatFileName(firstNew));

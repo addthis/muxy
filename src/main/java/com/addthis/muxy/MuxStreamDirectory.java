@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
@@ -30,6 +31,8 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+
+import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -90,11 +93,34 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
         }
     }
 
-    /*
-      * this method MUST be called when an application that performs writes is
-      * done with this class.  it ensures that the file meta-data has been
-      * properly compacted and written back out to disk.
-      */
+    protected int reserveStreamID() throws IOException {
+        int streamId = streamDirectoryConfig.nextStreamID.incrementAndGet();
+        releaseComplete.set(false);
+        return streamId;
+    }
+
+    /* force new "current" file -- used in defrag operations */
+    protected int bumpCurrentFile() throws IOException {
+        int fileId = streamDirectoryConfig.currentFile.incrementAndGet();
+        releaseComplete.set(false);
+        return fileId;
+    }
+
+    public void setMaxBlockSize(int size) throws IOException {
+        streamDirectoryConfig.maxBlockSize = size;
+        releaseComplete.set(false);
+    }
+
+    public void setMaxFileSize(int size) throws IOException {
+        streamDirectoryConfig.maxFileSize = size;
+        releaseComplete.set(false);
+    }
+
+    /**
+     * this method MUST be called when an application that performs writes is
+     * done with this class.  it ensures that the file meta-data has been
+     * properly compacted and written back out to disk.
+     */
     public void waitForWriteClosure() {
         while (true) {
             if (openWritesLock.tryLock()) {
@@ -106,22 +132,9 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                     openWritesLock.unlock();
                 }
             }
-            try {
-                Thread.sleep(100);
-            } catch (Exception ex) {
-                ex.printStackTrace();
-                return;
-            }
+            Uninterruptibles.sleepUninterruptibly(100, TimeUnit.MILLISECONDS);
         }
     }
-
-//  public InputStream readStream(MuxStream meta) throws IOException
-//  {
-//      synchronized (openStreamWrites)
-//      {
-//          return super.readStream(meta);
-//      }
-//  }
 
     /* acquire exclusive write lock for this directory */
     protected void acquireWritable() throws IOException {
@@ -139,10 +152,10 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
         }
     }
 
-    /* write out a new meta log from in-memory map.
-      * must be called with write lock held and in
-      * a sync block on openStreamWrites
-      */
+    /**
+     * write out a new meta log from in-memory map.
+     * must be called with write lock held and in a sync block on openStreamWrites
+     */
     protected void compactMetaLog() throws IOException {
         Path tmpLog = Files.createTempFile(streamDirectory, dirDataFile.getFileName().toString(), ".tmp");
         OutputStream out = Files.newOutputStream(tmpLog);
@@ -154,8 +167,10 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
         publishEvent(MuxyStreamEvent.LOG_COMPACT, streamDirectoryMap.size());
     }
 
-    /* cause release to complete now if eligible
-    *  thread safety - only called while synchronized on openStreamWrites */
+    /**
+     * cause release to complete now if eligible
+     * thread safety - only called while synchronized on openStreamWrites
+     */
     private boolean completeRelease() {
         try {
             /* all writes must be complete and release must not have run yet */
@@ -176,6 +191,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                     publishEvent(MuxyStreamEvent.WRITE_LOCK_RELEASED, writeMutexLock);
                     writeMutexLock = null;
                 }
+                streamDirectoryConfig.write(dirMetaFile, streamDirectoryMap.size());
                 releaseComplete.set(true);
                 return true;
             }
@@ -417,11 +433,11 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                     }
                     openWriteBytes.addAndGet((long) -out.snapshotLength);
                     eventListener.reportWrite((long) -out.snapshotLength);
-                    out.meta.endFile = streamDirectoryConfig.getCurrentFile();
+                    out.meta.endFile = streamDirectoryConfig.currentFile.get();
                     out.meta.endFileBlockOffset = currentFileOffset;
                     if (out.meta.startFile == 0) {
-                        out.meta.startFile = streamDirectoryConfig.getCurrentFile();
-                        out.meta.startFileBlockOffset = currentFileOffset;
+                        out.meta.startFile = out.meta.endFile;
+                        out.meta.startFileBlockOffset = out.meta.endFileBlockOffset;
                     }
                     if (!out.data.release()) {      // release the pending writes that did not get an extra retain
                         out.data.discardSomeReadBytes();
@@ -431,7 +447,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
             /* check for rolling current file on size threshold */
             if (openWriteFile.size() > streamDirectoryConfig.maxFileSize) {
                 openWriteFile.close();
-                openWriteFile = FileChannel.open(getFileByID(streamDirectoryConfig.getNextFile()), APPEND, CREATE);
+                openWriteFile = FileChannel.open(getFileByID(bumpCurrentFile()), APPEND, CREATE);
                 publishEvent(MuxyStreamEvent.BLOCK_FILE_WRITE_ROLL, streamDirectoryConfig.currentFile);
             }
         } finally {
