@@ -193,7 +193,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
         try {
             int newMetaId = reserveStreamID();
             meta = new MuxStream(this, newMetaId);
-            streamDirectoryMap.put(meta.streamID, meta);
+            streamDirectoryMap.put(meta.streamId, meta);
         } finally {
             openWritesLock.unlock();
         }
@@ -294,11 +294,11 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
         openWritesLock.lock();
         try {
             acquireWritable();
-            meta = findStream(meta.streamID);
-            StreamOut streamOut = openStreamWrites.get(meta.streamID);
+            meta = findStream(meta.streamId);
+            StreamOut streamOut = openStreamWrites.get(meta.streamId);
             if (streamOut == null) {
                 streamOut = new StreamOut(meta);
-                openStreamWrites.put(meta.streamID, streamOut);
+                openStreamWrites.put(meta.streamId, streamOut);
             }
             publishEvent(MuxyStreamEvent.STREAM_APPEND, meta);
             releaseComplete.set(false);
@@ -360,7 +360,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
             List<TempData> streamsWithData = new ArrayList<>(openStreamWrites.size());
             for (StreamOut out : openStreamWrites.values()) {
                 synchronized (out) {
-                    StreamOut pendingOut = pendingStreamCloses.get(out.meta.streamID);
+                    StreamOut pendingOut = pendingStreamCloses.get(out.meta.streamId);
                     if (pendingOut != null) {
                         pendingOut.outputBuffer.writeBytes(out.outputBuffer);
                         assert out.outputBuffer.readableBytes() == 0;
@@ -389,7 +389,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
             metaBuffer.writeShort(streams);
             int bodyOutputSize = 0;
             for (TempData out : streamsWithData) {
-                metaBuffer.writeInt(out.meta.streamID);
+                metaBuffer.writeInt(out.meta.streamId);
                 /* (4) chunk body offset (4) chunk length (n) chunk bytes */
                 bodyOutputSize += 8 + out.snapshotLength;
             }
@@ -491,18 +491,18 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                 publishEvent(MuxyStreamEvent.STREAM_CLOSE, meta);
                 if (writers.decrementAndGet() == 0) {       // there are no other valid writers nor will be
                     publishEvent(MuxyStreamEvent.STREAM_CLOSED_ALL, meta);
-                    openStreamWrites.remove(meta.streamID);
+                    openStreamWrites.remove(meta.streamId);
                     if (openStreamWrites.isEmpty()) {
                         closeTime.set(System.currentTimeMillis());
                         publishEvent(MuxyStreamEvent.CLOSED_ALL_STREAM_WRITERS, meta);
                     }
-                    StreamOut existingPend = pendingStreamCloses.get(meta.streamID);
+                    StreamOut existingPend = pendingStreamCloses.get(meta.streamId);
                     if ((existingPend != null) && (existingPend != this)) {     // should never be this?
                         existingPend.outputBuffer.writeBytes(outputBuffer);
                         assert outputBuffer.readableBytes() == 0;
                         outputBuffer.release();
                     } else if (outputBuffer.readableBytes() > 0) {
-                        pendingStreamCloses.put(meta.streamID, this);
+                        pendingStreamCloses.put(meta.streamId, this);
                         // quick hack to try to prevent number of streams in a block from being > 2^8
                         // TODO: better fix than this hack
                         if (pendingStreamCloses.size() > 1000) {

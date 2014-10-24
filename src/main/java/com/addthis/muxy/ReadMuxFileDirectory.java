@@ -58,7 +58,7 @@ public class ReadMuxFileDirectory {
     protected final Path streamDirectory;
     protected final Path fileMetaLog;
     protected final Path fileMetaConfig;
-    protected final Map<String, ReadMuxFile> fileMap;
+    protected final Map<String, MuxFile> fileMap;
 
     protected int lastMapSize = DEFAULT_MAP_SIZE;
 
@@ -129,7 +129,7 @@ public class ReadMuxFileDirectory {
         return streamMux;
     }
 
-    protected ReadMuxFile parseNextMuxFile(InputStream in) throws IOException {
+    protected MuxFile parseNextMuxFile(InputStream in) throws IOException {
         return new ReadMuxFile(in, this);
     }
 
@@ -139,7 +139,7 @@ public class ReadMuxFileDirectory {
             InputStream in = Files.newInputStream(fileMetaLog);
             while (true) {
                 try {
-                    ReadMuxFile meta = parseNextMuxFile(in);
+                    MuxFile meta = parseNextMuxFile(in);
                     if (recordsRead++ >= MAX_RECORDS_READ) {
                         throw new IOException("max records " + MAX_RECORDS_READ + " exceeded @ " + streamDirectory);
                     }
@@ -159,24 +159,24 @@ public class ReadMuxFileDirectory {
         return fileMap.get(fileName) != null;
     }
 
-    public ReadMuxFile openFile(String fileName, boolean create) throws IOException {
-        ReadMuxFile fileMeta = fileMap.get(fileName);
+    public MuxFile openFile(String fileName, boolean create) throws IOException {
+        MuxFile fileMeta = fileMap.get(fileName);
         if (fileMeta == null) {
             throw new FileNotFoundException(fileName);
         }
         return fileMeta;
     }
 
-    public Collection<ReadMuxFile> listFiles() throws IOException {
+    public Collection<MuxFile> listFiles() throws IOException {
         if (SORTED_DIR) {
-            SortedMap<String, ReadMuxFile> sorted = new TreeMap<>();
-            for (ReadMuxFile meta : fileMap.values()) {
+            SortedMap<String, MuxFile> sorted = new TreeMap<>();
+            for (MuxFile meta : fileMap.values()) {
                 sorted.put(meta.getName(), meta);
             }
             return sorted.values();
         } else {
-            ArrayList<ReadMuxFile> list = new ArrayList<>(fileMap.size());
-            for (ReadMuxFile meta : fileMap.values()) {
+            ArrayList<MuxFile> list = new ArrayList<>(fileMap.size());
+            for (MuxFile meta : fileMap.values()) {
                 list.add(meta);
             }
             return list;

@@ -77,7 +77,7 @@ public class TestMultiplexedFileManager {
         log.info("test1 TEMP DIR --> {}", dir);
         MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger, DEFAULT);
 
-        MuxFile stream1 = createWriteMetas(mfs, 2, 1)[0].meta;
+        WritableMuxFile stream1 = createWriteMetas(mfs, 2, 1)[0].meta;
         validateFile(stream1);
 
         mfs.waitForWriteClosure();
@@ -91,15 +91,15 @@ public class TestMultiplexedFileManager {
         log.info("test1 TEMP DIR --> {}", dir);
         MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger, DEFAULT);
 
-        MuxFile stream1 = createWriteMetas(mfs, 1, 1)[0].meta;
+        WritableMuxFile stream1 = createWriteMetas(mfs, 1, 1)[0].meta;
         validateFile(stream1);
 
-        MuxFile stream2 = createWriteMetas(mfs, 1, 1)[0].meta;
+        WritableMuxFile stream2 = createWriteMetas(mfs, 1, 1)[0].meta;
         validateFile(stream2);
         validateFile(stream1);
 
-        MuxFile stream3 = createWriteMetas(mfs, 1, 1)[0].meta;
-        MuxFile stream4 = createWriteMetas(mfs, 1, 1)[0].meta;
+        WritableMuxFile stream3 = createWriteMetas(mfs, 1, 1)[0].meta;
+        WritableMuxFile stream4 = createWriteMetas(mfs, 1, 1)[0].meta;
         validateFile(stream4);
         validateFile(stream3);
         validateFile(stream2);
@@ -141,7 +141,7 @@ public class TestMultiplexedFileManager {
         Thread.sleep(500);
         long totalStreamBytes = 0;
         log.info("test2 streams {} chars {}", totalStreams, totalChars);
-        for (ReadMuxFile stream : mfs.listFiles()) {
+        for (MuxFile stream : mfs.listFiles()) {
             totalStreamBytes += stream.getLength();
             log.debug("test2.file --> {}", stream);
         }
@@ -156,7 +156,7 @@ public class TestMultiplexedFileManager {
         File dirFile = tempFolder.newFolder();
         Path dir = dirFile.toPath();
         log.info("test3 TEMP DIR --> {}", dir);
-        final LinkedBlockingQueue<MuxFile> streams = new LinkedBlockingQueue<>();
+        final LinkedBlockingQueue<WritableMuxFile> streams = new LinkedBlockingQueue<>();
 
         EventLogger eventLogger = new EventLogger("test3", debugEvents);
         final MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger, DEFAULT);
@@ -168,7 +168,7 @@ public class TestMultiplexedFileManager {
         for (int i = 0; i < 50; i++) {
             futures[i] = executor.submit(new Callable<Void>() {
                 public Void call() throws Exception {
-                    MuxFile stream = createWriteMetas(mfs, 1000, 1)[0].meta;
+                    WritableMuxFile stream = createWriteMetas(mfs, 1000, 1)[0].meta;
                     validateFile(stream);
                     streams.put(stream);
                     return null;
@@ -191,7 +191,7 @@ public class TestMultiplexedFileManager {
         Thread.sleep(500);
         int totalStreams = 0;
         long totalStreamBytes = 0;
-        for (ReadMuxFile stream : mfs.listFiles()) {
+        for (MuxFile stream : mfs.listFiles()) {
             totalStreams++;
             totalStreamBytes += stream.getLength();
             log.info("test3.file --> {}", stream);
@@ -212,7 +212,7 @@ public class TestMultiplexedFileManager {
         final MuxFileDirectory mfs = new MuxFileDirectory(dir, eventLogger, DEFAULT);
         Assert.assertFalse(mfs.exists("someNewFile"));
 
-        MuxFile stream1 = createWriteMetas(mfs, 1, 1)[0].meta;
+        WritableMuxFile stream1 = createWriteMetas(mfs, 1, 1)[0].meta;
         Assert.assertTrue(mfs.exists(stream1.getName()));
     }
 
@@ -239,7 +239,7 @@ public class TestMultiplexedFileManager {
 //
 //          for (MuxStreamDirectory.StreamMeta stream : streams)
 //          {
-//              mfs.deleteStream(stream.getStreamID());
+//              mfs.deleteStream(stream.getStreamId());
 //          }
 //
 //          mfs.waitForWriteClosure();
@@ -254,7 +254,7 @@ public class TestMultiplexedFileManager {
 //  }
 
     private static class WriteMeta {
-        MuxFile meta;
+        WritableMuxFile meta;
         OutputStream out;
         String template;
 
@@ -287,7 +287,7 @@ public class TestMultiplexedFileManager {
         return metas;
     }
 
-    private static int validateFile(MuxFile meta) throws Exception {
+    private static int validateFile(WritableMuxFile meta) throws Exception {
         try(InputStream in = meta.read()) {
             int writes = Bytes.readInt(in);
             int readString = 0;

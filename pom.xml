@@ -19,6 +19,10 @@
     <version>3.2.1</version>
   </parent>
 
+  <properties>
+    <project.build.targetJdk>1.8</project.build.targetJdk>
+  </properties>
+
   <groupId>com.addthis</groupId>
   <artifactId>muxy</artifactId>
   <name>muxy</name>

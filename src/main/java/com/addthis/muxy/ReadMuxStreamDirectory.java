@@ -28,8 +28,6 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-import java.nio.ByteBuffer;
-import java.nio.IntBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.Files;
@@ -95,7 +93,11 @@ public class ReadMuxStreamDirectory {
         readMetaLog();
     }
 
-    protected Path getFileByID(final int fileID) {
+    protected Path getFileByID(int fileID) {
+        return getFileByID(streamDirectory, fileID);
+    }
+
+    public static Path getFileByID(Path streamDirectory, int fileID) {
         return streamDirectory.resolve(fileFormat.format(fileID));
     }
 
@@ -219,7 +221,7 @@ public class ReadMuxStreamDirectory {
             while (in.available() > 0) {
                 try {
                     MuxStream meta = new MuxStream(this, in);
-                    streamDirectoryMap.put(meta.streamID, meta);
+                    streamDirectoryMap.put(meta.streamId, meta);
                     if (entriesRead++ >= MAX_RECORDS_READ) {
                         throw new IOException("max records " + MAX_RECORDS_READ + " exceeded @ " + streamDirectory);
                     }
@@ -272,163 +274,6 @@ public class ReadMuxStreamDirectory {
             }
         }
         return usedFiles;
-    }
-
-    public InputStream readStream(MuxStream meta) throws IOException {
-        meta = findStream(meta.streamID);
-        if (meta.startFile == 0) {
-            throw new IOException("uninitialized stream");
-        }
-        publishEvent(MuxyStreamEvent.STREAM_READ, meta);
-        return new StreamIn(meta);
-    }
-
-    /* this is much trickier */
-    protected final class StreamIn extends InputStream {
-
-        protected final MuxStream meta;
-        protected FileChannel input;
-        protected int currentFile;
-        protected int currentRemain;
-        protected long nextBlockPosition;
-
-        protected StreamIn(MuxStream meta) throws IOException {
-            this.meta = meta;
-            this.currentFile = meta.startFile;
-            input = FileChannel.open(getFileByID(meta.startFile));
-            input.position(meta.startFileBlockOffset);
-            publishEvent(MuxyStreamEvent.BLOCK_FILE_READ_OPEN, currentFile);
-        }
-
-        @Override
-        public void close() throws IOException {
-            publishEvent(MuxyStreamEvent.BLOCK_FILE_READ_CLOSE, currentFile);
-            input.close();
-        }
-
-        @Override
-        public int available() throws IOException {
-            return fill() ? currentRemain : 0;
-        }
-
-        /* assumes file pointer is at the beginning of a valid block */
-        /* return true if more data is available */
-        protected boolean fill() throws IOException {
-            while (currentRemain == 0 && currentFile <= meta.endFile) {
-                if (currentFile == meta.endFile && input.position() > meta.endFileBlockOffset) {
-                    return false;
-                }
-                if (nextBlockPosition != 0) {
-                    input.position(nextBlockPosition);
-                }
-                if (input.position() >= input.size()) {
-                    input.close();
-                    publishEvent(MuxyStreamEvent.BLOCK_FILE_READ_CLOSE, currentFile);
-                    Path nextFile = getFileByID(++currentFile);
-                    if (!Files.exists(nextFile)) {
-                        log.warn("terminating stream on missing: {}", nextFile);
-                        return false;
-                    }
-                    input = FileChannel.open(nextFile);
-                    nextBlockPosition = 0;
-                    publishEvent(MuxyStreamEvent.BLOCK_FILE_READ_OPEN, currentFile);
-                }
-                // find next block that has this stream id
-                ByteBuffer shortBuffer = ByteBuffer.allocate(2);
-                while (input.read(shortBuffer) > 0) {
-                    ;
-                }
-                shortBuffer.flip();
-                int countIDs = shortBuffer.getShort();
-
-                int bufferSize = Math.min(1024, countIDs);
-                ByteBuffer buffer = ByteBuffer.allocateDirect(4 * bufferSize);
-                int[] streams = new int[bufferSize];
-                int offset = 0;
-                int offsetFound = 0;
-                while (countIDs > 0) {
-                    buffer.clear();
-                    if (countIDs < bufferSize) {
-                        buffer.limit(countIDs * 4);
-                    }
-                    while (input.read(buffer) > 0) {
-                        ;
-                    }
-                    buffer.flip();
-                    IntBuffer ibuffer = buffer.asIntBuffer();
-                    int ibuffRemain = Math.min(ibuffer.remaining(), countIDs);
-                    ibuffer.get(streams, 0, ibuffRemain);
-                    for (int i = 0; i < ibuffRemain; i++) {
-                        if (streams[i] == meta.streamID) {
-                            offsetFound = offset + i + 1;
-                            //TODO break and seek ahead based on countIDs
-                        }
-                    }
-                    countIDs -= ibuffRemain;
-                    offset += ibuffRemain;
-                }
-                buffer = ByteBuffer.allocate(4);
-                while (input.read(buffer) > 0) {
-                    ;
-                }
-                buffer.flip();
-                int bodySize = buffer.getInt();
-                long currentPosition = input.position();
-                nextBlockPosition = currentPosition + bodySize;
-                if (offsetFound == 0) {
-                    input.position(nextBlockPosition);
-                    continue;
-                } else {
-                    input.position(currentPosition + 8 * (offsetFound - 1));
-                }
-                ByteBuffer chunkBuffer = ByteBuffer.allocate(8);
-                while (input.read(chunkBuffer) > 0) {
-                    ;
-                }
-                chunkBuffer.flip();
-                int chunkBodyOffset = chunkBuffer.getInt();
-                int chunkBodyLength = chunkBuffer.getInt();
-                input.position(currentPosition + chunkBodyOffset);
-                currentRemain = chunkBodyLength;
-            }
-            return currentRemain > 0;
-        }
-
-        ByteBuffer singleByte;
-
-        @Override
-        public int read() throws IOException {
-            if (fill()) {
-                if (singleByte == null) {
-                    singleByte = ByteBuffer.allocate(1);
-                }
-                singleByte.clear();
-                int read = input.read(singleByte);
-                if (read >= 0) {
-                    currentRemain--;
-                }
-                singleByte.flip();
-                return singleByte.get() & 0xff;
-            }
-            return -1;
-        }
-
-        @Override
-        public int read(final byte[] b) throws IOException {
-            return read(b, 0, b.length);
-        }
-
-        @Override
-        public int read(final byte[] b, final int off, final int len) throws IOException {
-            if (!fill()) {
-                return -1;
-            }
-            final int read = input.read(ByteBuffer.wrap(b, off, Math.min(len, currentRemain)));
-            if (read > 0) {
-                currentRemain -= read;
-            }
-            return read;
-        }
     }
 
 }

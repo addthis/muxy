@@ -126,12 +126,12 @@ public class ReadMuxFileDirectoryCache {
     // These are all shortcuts / macros
 
     /* special case for StreamServer/Meshy that macros in listFiles */
-    public static Collection<ReadMuxFile> listFiles(File dir) throws Exception {
+    public static Collection<MuxFile> listFiles(File dir) throws Exception {
         return getResolvedInstance(dir).listFiles();
     }
 
     /* special case for StreamServer/Meshy that opens a specific muxed file */
-    public static ReadMuxFile getFileMeta(File dir, String name) throws Exception {
+    public static MuxFile getFileMeta(File dir, String name) throws Exception {
         return getResolvedInstance(dir).openFile(name, false);
     }
 

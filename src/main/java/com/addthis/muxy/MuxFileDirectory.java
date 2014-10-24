@@ -21,6 +21,7 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -31,7 +32,6 @@ import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-import com.addthis.basis.collect.ConcurrentHashMapV8;
 import com.addthis.basis.util.Bytes;
 import com.addthis.basis.util.JitterClock;
 import com.addthis.basis.util.Parameter;
@@ -70,7 +70,7 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
     // time to wait before attempting to write out dir map after last close
     static int WRITE_CLOSE_GRACE_TIME = Parameter.intValue("muxy.file.write.close", 10000);
 
-    private final ConcurrentMap<StreamsWriter, StreamsWriter> openFileWrites = new ConcurrentHashMapV8<>();
+    private final ConcurrentMap<StreamsWriter, StreamsWriter> openFileWrites = new ConcurrentHashMap<>();
     private final AtomicBoolean releaseComplete = new AtomicBoolean(true);
     private final AtomicLong closeTime = new AtomicLong(0);
     protected final MuxStreamDirectory writeStreamMux;
@@ -102,12 +102,12 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
     }
 
     @Override
-    protected MuxFile parseNextMuxFile(InputStream in) throws IOException {
-        return new MuxFile(in, this);
+    protected WritableMuxFile parseNextMuxFile(InputStream in) throws IOException {
+        return new WritableMuxFile(in, this);
     }
 
     @Override
-    public synchronized Collection<ReadMuxFile> listFiles() throws IOException {
+    public synchronized Collection<MuxFile> listFiles() throws IOException {
         return super.listFiles();
     }
 
@@ -244,7 +244,7 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
     private synchronized void compactMetaLog() throws IOException {
         Path tmpLog = Files.createTempFile(streamDirectory, fileMetaLog.getFileName().toString(), ".tmp");
         OutputStream out = Files.newOutputStream(tmpLog);
-        for (ReadMuxFile meta : fileMap.values()) {
+        for (MuxFile meta : fileMap.values()) {
             meta.writeRecord(out);
         }
         out.close();
@@ -259,11 +259,11 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
     }
 
     @Override
-    public synchronized MuxFile openFile(String fileName, boolean create) throws IOException {
-        MuxFile muxFile = (MuxFile) fileMap.get(fileName);
+    public synchronized WritableMuxFile openFile(String fileName, boolean create) throws IOException {
+        WritableMuxFile muxFile = (WritableMuxFile) fileMap.get(fileName);
         if (muxFile == null && create) {
-            muxFile = new MuxFile(this);
-            muxFile.fileID = writeStreamMux.reserveStreamID();
+            muxFile = new WritableMuxFile(this);
+            muxFile.fileId = writeStreamMux.reserveStreamID();
             muxFile.fileName = fileName;
             fileMap.put(fileName, muxFile);
             publishEvent(MuxyFileEvent.FILE_CREATE, muxFile);
@@ -287,9 +287,9 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
 
         int firstNew = writeStreamMux.bumpCurrentFile();
         System.out.println("defragging: " + fileMap.size() + " files into chunks starting with " + MuxStreamDirectory.formatFileName(firstNew));
-        for (ReadMuxFile oldFile : new ArrayList<>(fileMap.values())) {
+        for (MuxFile oldFile : new ArrayList<>(fileMap.values())) {
             System.out.print(oldFile.getName() + ", ");
-            MuxFile newFile = openFile(UUID.randomUUID().toString(), true);
+            WritableMuxFile newFile = openFile(UUID.randomUUID().toString(), true);
             byte[] buf = new byte[4096];
             int read = 0;
             InputStream in = oldFile.read(0, decompress);
@@ -299,7 +299,7 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
             }
             out.close();
             in.close();
-            newFile.lastModified = oldFile.lastModified;
+            newFile.lastModified = oldFile.getLastModified();
             newFile.setName(oldFile.getName());
             writeStreamMux.writeStreamsToBlock();
         }
@@ -310,31 +310,31 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
         System.out.println();
     }
 
-    public OutputStream newStreamsOutput(MuxFile muxFile) throws IOException {
+    public OutputStream newStreamsOutput(WritableMuxFile muxFile) throws IOException {
         return new StreamsWriter(muxFile);
     }
 
-    public OutputStream newStreamsOutput(MuxFile muxFile, boolean compress) throws IOException {
+    public OutputStream newStreamsOutput(WritableMuxFile muxFile, boolean compress) throws IOException {
         return new StreamsWriter(muxFile, compress);
     }
 
     /** */
     private class StreamsWriter extends OutputStream {
 
-        private final MuxFile meta;
+        private final WritableMuxFile meta;
         private OutputStream currentStream;
         private long lastGlobalBytes;
         private long bytesWritten;
         private final boolean compress;
 
-        StreamsWriter(MuxFile meta, boolean compress) throws IOException {
+        StreamsWriter(WritableMuxFile meta, boolean compress) throws IOException {
             acquireWritable();
             this.meta = meta;
             this.lastGlobalBytes = globalBytesWritten.get();
             this.compress = compress;
         }
 
-        StreamsWriter(MuxFile meta) throws IOException {
+        StreamsWriter(WritableMuxFile meta) throws IOException {
             this(meta, false);
         }
 
@@ -373,7 +373,7 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
 //          }
             if (currentStream == null) {
                 MuxStream streamMeta = writeStreamMux.createStream();
-                meta.addStream(streamMeta.getStreamID());
+                meta.addStream(streamMeta);
                 currentStream = streamMeta.append(writeStreamMux);
                 if (compress) {
                     currentStream = new GZIPOutputStream(currentStream);

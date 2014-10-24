@@ -25,32 +25,27 @@ import java.util.zip.GZIPInputStream;
  */
 class MuxFileReader extends InputStream {
 
-    private final Iterator<Integer> streams;
     private InputStream currentStream;
-    private ReadMuxFileDirectory multiplexedFileManager;
-    final boolean uncompress;
 
-    MuxFileReader(ReadMuxFileDirectory multiplexedFileManager, Iterator<Integer> streams, boolean uncompress) {
+    private final Iterator<MuxStream> streams;
+    private final boolean uncompress;
+
+    MuxFileReader(Iterator<MuxStream> streams, boolean uncompress) {
         this.uncompress = uncompress;
-        this.multiplexedFileManager = multiplexedFileManager;
         this.streams = streams;
     }
 
-    MuxFileReader(ReadMuxFileDirectory multiplexedFileManager, Iterator<Integer> streams) {
-        this.uncompress = false;
-        this.multiplexedFileManager = multiplexedFileManager;
-        this.streams = streams;
+    MuxFileReader(Iterator<MuxStream> streams) {
+        this(streams, false);
     }
 
     private boolean fill() throws IOException {
-        while ((currentStream == null || currentStream.available() == 0)) {
+        while ((currentStream == null) || (currentStream.available() == 0)) {
             if (currentStream != null) {
                 currentStream.close();
             }
             if (streams.hasNext()) {
-                currentStream = multiplexedFileManager.getStreamManager()
-                                                      .findStream(streams.next())
-                                                      .read();
+                currentStream = streams.next().read();
                 if (uncompress) {
                     currentStream = new GZIPInputStream(currentStream);
                 }

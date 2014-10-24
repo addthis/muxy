@@ -60,22 +60,22 @@ public class Main {
 
     public static void main(String[] args) throws Exception {
         if (args.length >= 2 && args[0].equals("ls")) {
-            Collection<ReadMuxFile> list = null;
+            Collection<MuxFile> list = null;
             if (args[1].equals("-l")) {
                 list = ReadMuxFileDirectoryCache.getResolvedInstance(new File(args.length > 2 ? args[2] : ".")).listFiles();
                 int longestName = 9;
                 int longestSize = 0;
-                for (ReadMuxFile meta : list) {
+                for (MuxFile meta : list) {
                     longestName = Math.max(longestName, meta.getName().length());
                     longestSize = Math.max(longestSize, numbers.format(meta.getLength()).length());
                 }
                 System.out.println(Strings.padright("filename", longestName + 1) + "  last modified         streams  mode  size");
-                for (ReadMuxFile meta : list) {
+                for (MuxFile meta : list) {
                     String mode = "RA";
                     System.out.println(
                                        Strings.padright(meta.getName(), longestName + 1) +
                                        "  " + dates.format(meta.getLastModified()) +
-                                       " " + Strings.padleft(meta.getStreamIDs().size() + "", 7) +
+                                       " " + Strings.padleft(meta.getStreamIds().count() + "", 7) +
                                        "    " + mode +
                                        "  " + Strings.padleft(numbers.format(meta.getLength()), longestSize)
                                        );
@@ -83,7 +83,7 @@ public class Main {
             } else {
                 list = ReadMuxFileDirectoryCache.getResolvedInstance(new File(args.length > 1 ? args[1] : ".")).listFiles();
                 int count = 0;
-                for (ReadMuxFile meta : list) {
+                for (MuxFile meta : list) {
                     if (count++ > 0) {
                         System.out.print("\t");
                     }
@@ -96,7 +96,7 @@ public class Main {
                 File file = new File(args[i]);
                 ReadMuxFileDirectory mfm = ReadMuxFileDirectoryCache.getResolvedInstance(file.getParentFile());
                 if (file.getName().equals("*")) {
-                    for (ReadMuxFile meta : mfm.listFiles()) {
+                    for (MuxFile meta : mfm.listFiles()) {
                         dumpInputToOutput(meta.read(0), System.out);
                     }
                 } else {
@@ -135,7 +135,7 @@ public class Main {
         } else if (args.length == 3 && args[0].equals("mv")) {
             File oldName = new File(args[1]);
             File newName = new File(args[2]);
-            MuxFile meta = MuxFileDirectoryCache.getWriteableInstance(oldName.getParentFile()).openFile(oldName.getName(), false);
+            WritableMuxFile meta = MuxFileDirectoryCache.getWriteableInstance(oldName.getParentFile()).openFile(oldName.getName(), false);
             if (meta == null) {
                 System.out.println("rename " + oldName + " to " + newName + " failed");
             }

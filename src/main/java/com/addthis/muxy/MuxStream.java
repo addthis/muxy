@@ -13,9 +13,14 @@
  */
 package com.addthis.muxy;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+
+import java.nio.file.Path;
 
 import com.addthis.basis.util.Bytes;
 
@@ -24,7 +29,7 @@ import com.google.common.base.Objects;
 /* meta data for start/end of a stream */
 public class MuxStream {
 
-    protected final int streamID;
+    protected final int streamId;
     // so we can jump to the beginning of a stream on read
     protected int startFile;
     protected int startFileBlockOffset;
@@ -34,25 +39,28 @@ public class MuxStream {
     // so we know size
     protected long bytes;
 
-    protected ReadMuxStreamDirectory streamDir;
+    @Nonnull  private final Path streamDirectory;
+    @Nullable private final MuxyEventListener eventListener;
 
-    public MuxStream(ReadMuxStreamDirectory streamDir, int streamID) {
-        this.streamDir = streamDir;
-        this.streamID = streamID;
+    public MuxStream(ReadMuxStreamDirectory streamDir, int streamId) {
+        this.streamDirectory = streamDir.streamDirectory;
+        this.eventListener = streamDir.eventListener;
+        this.streamId = streamId;
     }
 
-    public MuxStream(ReadMuxStreamDirectory streamDir, final InputStream in) throws IOException {
-        this.streamDir = streamDir;
-        streamID = Bytes.readInt(in);
-        startFile = Bytes.readInt(in);
-        startFileBlockOffset = Bytes.readInt(in);
-        endFile = Bytes.readInt(in);
-        endFileBlockOffset = Bytes.readInt(in);
-        bytes = Bytes.readLength(in);
+    public MuxStream(ReadMuxStreamDirectory streamDir, InputStream in) throws IOException {
+        this.streamDirectory = streamDir.streamDirectory;
+        this.eventListener = streamDir.eventListener;
+        this.streamId = Bytes.readInt(in);
+        this.startFile = Bytes.readInt(in);
+        this.startFileBlockOffset = Bytes.readInt(in);
+        this.endFile = Bytes.readInt(in);
+        this.endFileBlockOffset = Bytes.readInt(in);
+        this.bytes = Bytes.readLength(in);
     }
 
     protected void write(final OutputStream out) throws IOException {
-        Bytes.writeInt(streamID, out);
+        Bytes.writeInt(streamId, out);
         Bytes.writeInt(startFile, out);
         Bytes.writeInt(startFileBlockOffset, out);
         Bytes.writeInt(endFile, out);
@@ -60,8 +68,8 @@ public class MuxStream {
         Bytes.writeLength(bytes, out);
     }
 
-    public int getStreamID() {
-        return streamID;
+    public int getStreamId() {
+        return streamId;
     }
 
     public long getStreamBytes() {
@@ -85,7 +93,10 @@ public class MuxStream {
     }
 
     public InputStream read() throws IOException {
-        return streamDir.readStream(this);
+        if (startFile == 0) {
+            throw new IOException("uninitialized stream");
+        }
+        return new StreamIn(this, streamDirectory, eventListener);
     }
 
     public OutputStream append(MuxStreamDirectory muxStreamDirectory) throws IOException {
@@ -95,12 +106,12 @@ public class MuxStream {
     @Override
     public String toString() {
         return Objects.toStringHelper(this)
-                .add("streamID", streamID)
-                .add("startFile", startFile)
-                .add("startFileBlockOffset", startFileBlockOffset)
-                .add("endFile", endFile)
-                .add("endFileBlockOffset", endFileBlockOffset)
-                .add("bytes", bytes)
-                .toString();
+                      .add("streamId", streamId)
+                      .add("bytes", bytes)
+                      .add("startFile", startFile)
+                      .add("startFileBlockOffset", startFileBlockOffset)
+                      .add("endFile", endFile)
+                      .add("endFileBlockOffset", endFileBlockOffset)
+                      .toString();
     }
 }

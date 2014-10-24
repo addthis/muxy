@@ -219,7 +219,7 @@ public class TestMultiplexedFileStreams {
                     dataFileCount(dir), mfs.getActiveFiles().size());
 
             for (MuxStream meta : streams) {
-                mfs.deleteStream(meta.getStreamID());
+                mfs.deleteStream(meta.getStreamId());
             }
 
             mfs.waitForWriteClosure();
@@ -245,7 +245,7 @@ public class TestMultiplexedFileStreams {
         WriteStream(MuxStreamDirectory muxStreamDirectory) throws IOException {
             stream = muxStreamDirectory.createStream();
             out = muxStreamDirectory.appendStream(stream);
-            template = "[stream." + stream.getStreamID() + "] ";
+            template = "[stream." + stream.getStreamId() + "] ";
         }
     }
 
@@ -268,14 +268,14 @@ public class TestMultiplexedFileStreams {
         }
         for (WriteStream writeStream : writeStreams) {
             writeStream.out.close();
-            log.debug("created stream {}", writeStream.stream.getStreamID());
+            log.debug("created stream {}", writeStream.stream.getStreamId());
         }
         muxStreamDirectory.writeStreamsToBlock();
         return writeStreams;
     }
 
     private static int validateStream(ReadMuxStreamDirectory mfs, MuxStream meta) throws Exception {
-        try(InputStream in = mfs.readStream(meta)) {
+        try(InputStream in = meta.read()) {
             int writes = Bytes.readInt(in);
             int readString = 0;
             for (int i = 0; i < writes; i++) {
@@ -284,11 +284,11 @@ public class TestMultiplexedFileStreams {
                     readString += read.length();
                     log.debug("read.{} [{}] --> {}", CHAR_WRITE.charAt(0), read.length(), read);
                     Assert.assertTrue("fail contain " + CHAR_WRITE + " in " + read, read.indexOf(CHAR_WRITE) > 0);
-                    Assert.assertTrue("fail 'stream." + meta.getStreamID() + "' in " + read,
-                            read.indexOf("stream." + meta.getStreamID()) > 0);
+                    Assert.assertTrue("fail 'stream." + meta.getStreamId() + "' in " + read,
+                            read.indexOf("stream." + meta.getStreamId()) > 0);
                 }
             }
-            log.debug("validated stream {} of {} chars", meta.getStreamID(), readString);
+            log.debug("validated stream {} of {} chars", meta.getStreamId(), readString);
             return readString;
         }
     }
