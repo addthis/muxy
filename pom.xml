@@ -21,6 +21,8 @@
 
   <properties>
     <project.build.targetJdk>1.8</project.build.targetJdk>
+
+    <dep.plugin.findbugs.version>3.0.0</dep.plugin.findbugs.version>
   </properties>
 
   <groupId>com.addthis</groupId>
