@@ -13,6 +13,9 @@
  */
 package com.addthis.muxy;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -33,10 +36,10 @@ public abstract class AbstractMuxFile implements MuxFile {
     protected long length;
     protected long lastModified;
 
-    protected final ArrayList<MuxStream> streams;
-    protected final MuxyEventListener eventListener;
+    @Nonnull  protected final ArrayList<MuxStream> streams;
+    @Nullable protected final MuxyEventListener eventListener;
 
-    protected AbstractMuxFile(MuxyEventListener eventListener) {
+    protected AbstractMuxFile(@Nullable MuxyEventListener eventListener) {
         this.eventListener = eventListener;
         this.streams = new ArrayList<>();
     }
@@ -98,13 +101,17 @@ public abstract class AbstractMuxFile implements MuxFile {
     }
 
     @Override public InputStream read(long offset, boolean uncompress) throws IOException {
-        eventListener.fileEvent(MuxyFileEvent.FILE_READ, this);
+        if (eventListener != null) {
+            eventListener.fileEvent(MuxyFileEvent.FILE_READ, this);
+        }
         // TODO potential array creation race with append
         return new MuxFileReader(getStreams().iterator(), uncompress);
     }
 
     @Override public InputStream read(long offset) throws IOException {
-        eventListener.fileEvent(MuxyFileEvent.FILE_READ, this);
+        if (eventListener != null) {
+            eventListener.fileEvent(MuxyFileEvent.FILE_READ, this);
+        }
         // TODO potential array creation race with append
         return new MuxFileReader(getStreams().iterator());
     }
