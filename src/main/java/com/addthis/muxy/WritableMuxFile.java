@@ -36,7 +36,7 @@ public class WritableMuxFile extends AbstractMuxFile {
     }
 
     public void sync() throws IOException {
-        writeDir.writeStreamMux.writeStreamsToBlock();
+        writeDir.getStreamManager().writeStreamsToBlock();
     }
 
     public void setName(String newName) throws IOException {
@@ -54,7 +54,7 @@ public class WritableMuxFile extends AbstractMuxFile {
                 /* delete associated stream ids */
                 getStreamIds().forEachOrdered(value -> {
                     try {
-                        writeDir.writeStreamMux.deleteStream(value);
+                        writeDir.getStreamManager().deleteStream(value);
                     } catch (IOException e) {
                         Throwables.propagate(e);
                     }

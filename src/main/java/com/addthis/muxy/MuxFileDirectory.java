@@ -72,8 +72,6 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
 
     private final ConcurrentMap<StreamsWriter, StreamsWriter> openFileWrites = new ConcurrentHashMap<>();
     private final AtomicBoolean releaseComplete = new AtomicBoolean(true);
-    private final AtomicLong closeTime = new AtomicLong(0);
-    protected final MuxStreamDirectory writeStreamMux;
     protected final MuxFileDirectoryCacheInstance cacheInstance;
 
     final AtomicLong globalBytesWritten = new AtomicLong(0);
@@ -88,7 +86,6 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
     public MuxFileDirectory(Path dir, MuxyEventListener listener, MuxFileDirectoryCacheInstance cacheInstance) throws Exception {
         super(dir, listener);
         this.cacheInstance = cacheInstance;
-        writeStreamMux = (MuxStreamDirectory) streamMux;
     }
 
     @Override
@@ -112,7 +109,7 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
     }
 
     public void setDeleteFreed(final boolean deleteFreed) {
-        writeStreamMux.setDeleteFreed(deleteFreed);
+        getStreamManager().setDeleteFreed(deleteFreed);
     }
 
     public void setWriteThrashold(int threshold) throws IOException {
@@ -127,12 +124,12 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
 
     /* pass through config */
     public void setMaxBlockSize(int size) throws IOException {
-        writeStreamMux.setMaxBlockSize(size);
+        getStreamManager().setMaxBlockSize(size);
     }
 
     /* pass through config */
     public void setMaxFileSize(int size) throws IOException {
-        writeStreamMux.setMaxFileSize(size);
+        getStreamManager().setMaxFileSize(size);
     }
 
     public boolean isWritingComplete() {
@@ -153,7 +150,7 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
                 closed = isWritingComplete() || completeRelease();
             }
             if (closed) {
-                writeStreamMux.waitForWriteClosure();
+                getStreamManager().waitForWriteClosure();
                 return true;
             }
             if (waitTime == 0) {
@@ -175,7 +172,7 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
                         completeRelease();
                     }
                 }
-                writeStreamMux.waitForWriteClosure();
+                getStreamManager().waitForWriteClosure();
                 return false;
             }
             try {
@@ -238,7 +235,7 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
 
     @Override
     protected MuxStreamDirectory getStreamManager() {
-        return writeStreamMux;
+        return (MuxStreamDirectory) streamMux;
     }
 
     private synchronized void compactMetaLog() throws IOException {
@@ -263,7 +260,7 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
         WritableMuxFile muxFile = (WritableMuxFile) fileMap.get(fileName);
         if (muxFile == null && create) {
             muxFile = new WritableMuxFile(this);
-            muxFile.fileId = writeStreamMux.reserveStreamID();
+            muxFile.fileId = getStreamManager().reserveStreamID();
             muxFile.fileName = fileName;
             fileMap.put(fileName, muxFile);
             publishEvent(MuxyFileEvent.FILE_CREATE, muxFile);
@@ -282,10 +279,10 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
         int file_size = Parameter.intValue("file-size", 100) * 1024 * 1024;
         boolean decompress = Parameter.boolValue("decompress", false);
         boolean recompress = Parameter.boolValue("recompress", false);
-        writeStreamMux.setMaxBlockSize(block_size);
-        writeStreamMux.setMaxFileSize(file_size);
+        getStreamManager().setMaxBlockSize(block_size);
+        getStreamManager().setMaxFileSize(file_size);
 
-        int firstNew = writeStreamMux.bumpCurrentFile();
+        int firstNew = getStreamManager().bumpCurrentFile();
         System.out.println("defragging: " + fileMap.size() + " files into chunks starting with " + MuxStreamDirectory.formatFileName(firstNew));
         for (MuxFile oldFile : new ArrayList<>(fileMap.values())) {
             System.out.print(oldFile.getName() + ", ");
@@ -301,7 +298,7 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
             in.close();
             newFile.lastModified = oldFile.getLastModified();
             newFile.setName(oldFile.getName());
-            writeStreamMux.writeStreamsToBlock();
+            getStreamManager().writeStreamsToBlock();
         }
         while (firstNew > 1) {
             Files.deleteIfExists(streamDirectory.resolve(MuxStreamDirectory.formatFileName(--firstNew)));
@@ -372,9 +369,9 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
 //              closeCurrentStream();
 //          }
             if (currentStream == null) {
-                MuxStream streamMeta = writeStreamMux.createStream();
+                MuxStream streamMeta = getStreamManager().createStream();
                 meta.addStream(streamMeta);
-                currentStream = streamMeta.append(writeStreamMux);
+                currentStream = streamMeta.append(getStreamManager());
                 if (compress) {
                     currentStream = new GZIPOutputStream(currentStream);
                 }
@@ -443,5 +440,4 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
                     .toString();
         }
     }
-
 }

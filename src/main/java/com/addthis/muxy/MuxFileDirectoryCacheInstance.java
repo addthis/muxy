@@ -96,13 +96,13 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
             long cachedStreams = getCacheStreamSize();
             long cachedBytes = getCacheByteSize();
             for (TrackedMultiplexFileManager mfm : tmfm) {
-                long currentBytes = mfm.writeStreamMux.openWriteBytes.get();
+                long currentBytes = mfm.getStreamManager().openWriteBytes.get();
                 if (((cache.size() > cacheDirMax) || (cachedStreams > cacheStreamMax))
                     && mfm.checkRelease()
                     && mfm.waitForWriteClosure(0)) {
                     cache.remove(mfm.getDirectory());
-                    cachedStreams -= mfm.writeStreamMux.size();
-                    streamCount.addAndGet(-mfm.writeStreamMux.size());
+                    cachedStreams -= mfm.getStreamManager().size();
+                    streamCount.addAndGet(-mfm.getStreamManager().size());
                     cacheEvictions.incrementAndGet();
                     if (log.isDebugEnabled()) { // non-trivial arg cost
                         log.debug("flush.ok {} files={} complete={}",
@@ -112,13 +112,13 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
                 } else {
                     if ((cachedBytes > cacheBytesMax) && (currentBytes != 0) && (currentBytes == mfm.prevBytes)) {
                         try {
-                            cachedBytes -= mfm.writeStreamMux.writeStreamsToBlock();
+                            cachedBytes -= mfm.getStreamManager().writeStreamsToBlock();
                         } catch (IOException ex) {
                             log.error("IOException while calling write streams to block", ex);
                         }
                         mfm.prevBytes = 0; //perhaps not true but fine
                     } else if ((currentBytes == 0) && (mfm.prevBytes == 0)) {
-                        mfm.writeStreamMux.maybeTrimOutputBuffers();
+                        mfm.getStreamManager().maybeTrimOutputBuffers();
                     } else {
                         mfm.prevBytes = currentBytes;
                     }
@@ -143,7 +143,7 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
                 for (TrackedMultiplexFileManager mfm : tmfm) {
                     if (cachedBytes > cacheBytesMax) {
                         try {
-                            cachedBytes -= mfm.writeStreamMux.writeStreamsToBlock();
+                            cachedBytes -= mfm.getStreamManager().writeStreamsToBlock();
                         } catch (IOException ex) {
                             log.error("IOException while calling write streams to block", ex);
                         }
@@ -164,7 +164,7 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
             if (cache.containsKey(muxDir.getDirectory())) {
                 muxDir.waitForWriteClosure(0);
                 cache.remove(muxDir.getDirectory());
-                streamCount.addAndGet(-muxDir.writeStreamMux.size());
+                streamCount.addAndGet(-muxDir.getStreamManager().size());
                 cacheEvictions.incrementAndGet();
                 return true;
             }
@@ -181,7 +181,7 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
             for (TrackedMultiplexFileManager mfm : tmfm) {
                 if (mfm.waitForWriteClosure(0)) {
                     cache.remove(mfm.getDirectory());
-                    streamCount.addAndGet(-mfm.writeStreamMux.size());
+                    streamCount.addAndGet(-mfm.getStreamManager().size());
                     cacheEvictions.incrementAndGet();
                 }
             }
@@ -242,7 +242,7 @@ class MuxFileDirectoryCacheInstance implements WriteTracker {
             if (mfm == null) {
                 mfm = new TrackedMultiplexFileManager(realPath, new TrackedFileEventListener(), this);
                 cache.put(realPath, mfm);
-                reportStreams((long) mfm.writeStreamMux.size());
+                reportStreams((long) mfm.getStreamManager().size());
                 if (cache.size() > cacheDirMax) {
                     doEviction();
                 }

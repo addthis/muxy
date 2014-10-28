@@ -283,7 +283,7 @@ public class TestMultiplexedFileManager {
             meta.out.close();
             log.debug("created file {}", meta.meta.getName());
         }
-        mfs.writeStreamMux.writeStreamsToBlock();
+        mfs.getStreamManager().writeStreamsToBlock();
         return metas;
     }
 
