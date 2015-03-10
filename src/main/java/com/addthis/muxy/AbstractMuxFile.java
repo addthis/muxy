@@ -24,7 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.IntStream;
 
-import com.addthis.basis.util.Bytes;
+import com.addthis.basis.util.LessBytes;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Throwables;
@@ -47,17 +47,17 @@ public abstract class AbstractMuxFile implements MuxFile {
     protected AbstractMuxFile(ReadMuxFileDirectory dir, InputStream in) throws IOException {
         this(dir.eventListener);
         // throw away unused format flag (unused in read/write as well)
-        Bytes.readLength(in);
+        LessBytes.readLength(in);
 
-        fileId = Bytes.readInt(in);
-        fileName = Bytes.readString(in);
+        fileId = LessBytes.readInt(in);
+        fileName = LessBytes.readString(in);
         in.read(); //throw away unused mode -- TODO: either have a real use or stop saving
-        length = Bytes.readLength(in);
-        lastModified = Bytes.readLength(in);
-        int count = (int) Bytes.readLength(in);
+        length = LessBytes.readLength(in);
+        lastModified = LessBytes.readLength(in);
+        int count = (int) LessBytes.readLength(in);
         streams.ensureCapacity(count);
         for (int i = 0; i < count; i++) {
-            int streamId = (int) Bytes.readLength(in);
+            int streamId = (int) LessBytes.readLength(in);
             streams.add(dir.getStreamManager().findStream(streamId));
         }
     }
@@ -84,16 +84,16 @@ public abstract class AbstractMuxFile implements MuxFile {
     }
 
     @Override public void writeRecord(OutputStream out) throws IOException {
-        Bytes.writeLength(0, out);
-        Bytes.writeInt(fileId, out);
-        Bytes.writeString(fileName, out);
+        LessBytes.writeLength(0, out);
+        LessBytes.writeInt(fileId, out);
+        LessBytes.writeString(fileName, out);
         out.write(0);
-        Bytes.writeLength(length, out);
-        Bytes.writeLength(lastModified, out);
-        Bytes.writeLength(streams.size(), out);
+        LessBytes.writeLength(length, out);
+        LessBytes.writeLength(lastModified, out);
+        LessBytes.writeLength(streams.size(), out);
         getStreamIds().forEachOrdered(streamId -> {
             try {
-                Bytes.writeLength(streamId, out);
+                LessBytes.writeLength(streamId, out);
             } catch (IOException e) {
                 Throwables.propagate(e);
             }

@@ -24,7 +24,7 @@ import java.util.Random;
 
 import java.nio.file.Path;
 
-import com.addthis.basis.util.Bytes;
+import com.addthis.basis.util.LessBytes;
 
 import org.junit.Assert;
 import org.junit.Rule;
@@ -88,7 +88,7 @@ public class TestMultiplexedFileServer {
             }
             try {
                 OutputStream out = mfm.openFile(String.valueOf(file), true).append();
-                Bytes.writeLength(raw.length, out);
+                LessBytes.writeLength(raw.length, out);
                 out.write(val);
                 out.write(raw);
                 openSet.add(out);

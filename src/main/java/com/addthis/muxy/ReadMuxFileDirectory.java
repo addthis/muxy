@@ -28,7 +28,7 @@ import java.util.TreeMap;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-import com.addthis.basis.util.Bytes;
+import com.addthis.basis.util.LessBytes;
 import com.addthis.basis.util.Parameter;
 
 import org.slf4j.Logger;
@@ -107,10 +107,10 @@ public class ReadMuxFileDirectory {
             InputStream in = Files.newInputStream(fileMetaConfig);
             try {
                 // Throw away write config settings
-                Bytes.readInt(in);
-                Bytes.readInt(in);
+                LessBytes.readInt(in);
+                LessBytes.readInt(in);
                 if (in.available() > 0) {
-                    lastMapSize = Bytes.readInt(in);
+                    lastMapSize = LessBytes.readInt(in);
                 }
             } catch (IOException ex) {
                 log.error("corrupted conf {}", fileMetaConfig.toAbsolutePath());

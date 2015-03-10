@@ -24,7 +24,7 @@ import java.text.DateFormat;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 
-import com.addthis.basis.util.Strings;
+import com.addthis.basis.util.LessStrings;
 
 public class Main {
 
@@ -69,15 +69,15 @@ public class Main {
                     longestName = Math.max(longestName, meta.getName().length());
                     longestSize = Math.max(longestSize, numbers.format(meta.getLength()).length());
                 }
-                System.out.println(Strings.padright("filename", longestName + 1) + "  last modified         streams  mode  size");
+                System.out.println(LessStrings.padright("filename", longestName + 1) + "  last modified         streams  mode  size");
                 for (MuxFile meta : list) {
                     String mode = "RA";
                     System.out.println(
-                                       Strings.padright(meta.getName(), longestName + 1) +
+                                       LessStrings.padright(meta.getName(), longestName + 1) +
                                        "  " + dates.format(meta.getLastModified()) +
-                                       " " + Strings.padleft(meta.getStreamIds().count() + "", 7) +
+                                       " " + LessStrings.padleft(meta.getStreamIds().count() + "", 7) +
                                        "    " + mode +
-                                       "  " + Strings.padleft(numbers.format(meta.getLength()), longestSize)
+                                       "  " + LessStrings.padleft(numbers.format(meta.getLength()), longestSize)
                                        );
                 }
             } else {

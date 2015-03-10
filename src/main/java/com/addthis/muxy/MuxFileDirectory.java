@@ -32,7 +32,7 @@ import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-import com.addthis.basis.util.Bytes;
+import com.addthis.basis.util.LessBytes;
 import com.addthis.basis.util.JitterClock;
 import com.addthis.basis.util.Parameter;
 
@@ -187,9 +187,9 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
     /* called for each property change */
     private void writeConfig() throws IOException {
         OutputStream out = Files.newOutputStream(fileMetaConfig);
-        Bytes.writeInt(WRITE_THRASHOLD, out);
-        Bytes.writeInt(LAZY_LOG_CLOSE, out);
-        Bytes.writeInt(fileMap.size(), out);
+        LessBytes.writeInt(WRITE_THRASHOLD, out);
+        LessBytes.writeInt(LAZY_LOG_CLOSE, out);
+        LessBytes.writeInt(fileMap.size(), out);
         out.close();
     }
 

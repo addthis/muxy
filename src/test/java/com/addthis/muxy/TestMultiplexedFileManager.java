@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import java.nio.file.Path;
 
-import com.addthis.basis.util.Bytes;
+import com.addthis.basis.util.LessBytes;
 
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -269,13 +269,13 @@ public class TestMultiplexedFileManager {
         WriteMeta[] metas = new WriteMeta[files];
         for (int i = 0; i < files; i++) {
             metas[i] = new WriteMeta(mfs, nextFileName.incrementAndGet());
-            Bytes.writeInt(writes, metas[i].out);
+            LessBytes.writeInt(writes, metas[i].out);
         }
 
         for (int i = 0; i < writes; i++) {
             for (WriteMeta meta : metas) {
                 for (String CHAR_WRITE : CHAR_WRITES) {
-                    Bytes.writeString(meta.template + CHAR_WRITE, meta.out);
+                    LessBytes.writeString(meta.template + CHAR_WRITE, meta.out);
                 }
             }
         }
@@ -289,11 +289,11 @@ public class TestMultiplexedFileManager {
 
     private static int validateFile(WritableMuxFile meta) throws Exception {
         try(InputStream in = meta.read()) {
-            int writes = Bytes.readInt(in);
+            int writes = LessBytes.readInt(in);
             int readString = 0;
             for (int i = 0; i < writes; i++) {
                 for (String CHAR_WRITE : CHAR_WRITES) {
-                    String read = Bytes.readString(in);
+                    String read = LessBytes.readString(in);
                     readString += read.length();
                     log.debug("read.{} [{}] --> {}", CHAR_WRITE.charAt(0), read.length(), read);
                     Assert.assertTrue("fail contain " + CHAR_WRITE + " in " + read, read.indexOf(CHAR_WRITE) > 0);

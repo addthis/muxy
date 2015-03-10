@@ -33,7 +33,7 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-import com.addthis.basis.util.Bytes;
+import com.addthis.basis.util.LessBytes;
 
 import com.google.common.collect.Iterators;
 
@@ -256,13 +256,13 @@ public class TestMultiplexedFileStreams {
         WriteStream[] writeStreams = new WriteStream[streams];
         for (int i = 0; i < streams; i++) {
             writeStreams[i] = new WriteStream(muxStreamDirectory);
-            Bytes.writeInt(writes, writeStreams[i].out);
+            LessBytes.writeInt(writes, writeStreams[i].out);
         }
 
         for (int i = 0; i < writes; i++) {
             for (WriteStream writeStream : writeStreams) {
                 for (String CHAR_WRITE : CHAR_WRITES) {
-                    Bytes.writeString(writeStream.template + CHAR_WRITE, writeStream.out);
+                    LessBytes.writeString(writeStream.template + CHAR_WRITE, writeStream.out);
                 }
             }
         }
@@ -276,11 +276,11 @@ public class TestMultiplexedFileStreams {
 
     private static int validateStream(ReadMuxStreamDirectory mfs, MuxStream meta) throws Exception {
         try(InputStream in = meta.read()) {
-            int writes = Bytes.readInt(in);
+            int writes = LessBytes.readInt(in);
             int readString = 0;
             for (int i = 0; i < writes; i++) {
                 for (String CHAR_WRITE : CHAR_WRITES) {
-                    String read = Bytes.readString(in);
+                    String read = LessBytes.readString(in);
                     readString += read.length();
                     log.debug("read.{} [{}] --> {}", CHAR_WRITE.charAt(0), read.length(), read);
                     Assert.assertTrue("fail contain " + CHAR_WRITE + " in " + read, read.indexOf(CHAR_WRITE) > 0);

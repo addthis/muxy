@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-import com.addthis.basis.util.Bytes;
+import com.addthis.basis.util.LessBytes;
 import com.addthis.basis.util.Parameter;
 
 /* meta data for entire directory stored as binary in directory as mfs.conf */
@@ -43,14 +43,14 @@ class MuxDirectory {
     protected void read(Path dirMetaFile) throws IOException {
         if (Files.isRegularFile(dirMetaFile)) {
             try (InputStream in = Files.newInputStream(dirMetaFile)) {
-                currentFile.set(Bytes.readInt(in));
-                nextStreamID.set(Bytes.readInt(in));
-                maxBlockSize = Bytes.readInt(in);
-                maxFileSize = Bytes.readInt(in);
-                lockReleaseTimeout = Bytes.readInt(in);
+                currentFile.set(LessBytes.readInt(in));
+                nextStreamID.set(LessBytes.readInt(in));
+                maxBlockSize = LessBytes.readInt(in);
+                maxFileSize = LessBytes.readInt(in);
+                lockReleaseTimeout = LessBytes.readInt(in);
             /* for backward compatibility. older confs do not contain this hint */
                 if (in.available() > 0) {
-                    streamMapSize = Bytes.readInt(in);
+                    streamMapSize = LessBytes.readInt(in);
                 }
             }
         }
@@ -58,13 +58,13 @@ class MuxDirectory {
 
     protected void write(Path dirMetaFile, int streamMapSize) throws IOException {
         try (OutputStream out = Files.newOutputStream(dirMetaFile)) {
-            Bytes.writeInt(currentFile.get(), out);
-            Bytes.writeInt(nextStreamID.get(), out);
-            Bytes.writeInt(maxBlockSize, out);
-            Bytes.writeInt(maxFileSize, out);
-            Bytes.writeInt(lockReleaseTimeout, out);
+            LessBytes.writeInt(currentFile.get(), out);
+            LessBytes.writeInt(nextStreamID.get(), out);
+            LessBytes.writeInt(maxBlockSize, out);
+            LessBytes.writeInt(maxFileSize, out);
+            LessBytes.writeInt(lockReleaseTimeout, out);
             // use as hint for allocation of map
-            Bytes.writeInt(streamMapSize, out);
+            LessBytes.writeInt(streamMapSize, out);
         }
     }
 

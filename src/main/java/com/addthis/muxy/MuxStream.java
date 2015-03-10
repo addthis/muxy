@@ -22,7 +22,7 @@ import java.io.OutputStream;
 
 import java.nio.file.Path;
 
-import com.addthis.basis.util.Bytes;
+import com.addthis.basis.util.LessBytes;
 
 import com.google.common.base.Objects;
 
@@ -51,21 +51,21 @@ public class MuxStream {
     public MuxStream(ReadMuxStreamDirectory streamDir, InputStream in) throws IOException {
         this.streamDirectory = streamDir.streamDirectory;
         this.eventListener = streamDir.eventListener;
-        this.streamId = Bytes.readInt(in);
-        this.startFile = Bytes.readInt(in);
-        this.startFileBlockOffset = Bytes.readInt(in);
-        this.endFile = Bytes.readInt(in);
-        this.endFileBlockOffset = Bytes.readInt(in);
-        this.bytes = Bytes.readLength(in);
+        this.streamId = LessBytes.readInt(in);
+        this.startFile = LessBytes.readInt(in);
+        this.startFileBlockOffset = LessBytes.readInt(in);
+        this.endFile = LessBytes.readInt(in);
+        this.endFileBlockOffset = LessBytes.readInt(in);
+        this.bytes = LessBytes.readLength(in);
     }
 
     protected void write(final OutputStream out) throws IOException {
-        Bytes.writeInt(streamId, out);
-        Bytes.writeInt(startFile, out);
-        Bytes.writeInt(startFileBlockOffset, out);
-        Bytes.writeInt(endFile, out);
-        Bytes.writeInt(endFileBlockOffset, out);
-        Bytes.writeLength(bytes, out);
+        LessBytes.writeInt(streamId, out);
+        LessBytes.writeInt(startFile, out);
+        LessBytes.writeInt(startFileBlockOffset, out);
+        LessBytes.writeInt(endFile, out);
+        LessBytes.writeInt(endFileBlockOffset, out);
+        LessBytes.writeLength(bytes, out);
     }
 
     public int getStreamId() {
