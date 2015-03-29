@@ -214,7 +214,9 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
             openWritesLock.unlock();
         }
         publishEvent(MuxyStreamEvent.STREAM_CREATE, meta);
-        eventListener.reportStreams(1);
+        if (eventListener != null) {
+            eventListener.reportStreams(1);
+        }
         return meta;
     }
 
@@ -432,7 +434,9 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
                         toWrite -= numBytesRead;
                     }
                     openWriteBytes.addAndGet((long) -out.snapshotLength);
-                    eventListener.reportWrite((long) -out.snapshotLength);
+                    if (eventListener != null) {
+                        eventListener.reportWrite((long) -out.snapshotLength);
+                    }
                     out.meta.endFile = streamDirectoryConfig.currentFile.get();
                     out.meta.endFileBlockOffset = currentFileOffset;
                     if (out.meta.startFile == 0) {
@@ -497,7 +501,9 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
 
                 meta.bytes += len;
             }
-            eventListener.reportWrite(len);
+            if (eventListener != null) {
+                eventListener.reportWrite(len);
+            }
         }
 
         void close() throws IOException {
