@@ -177,8 +177,9 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
             }
             try {
                 Thread.sleep(10);
-            } catch (Exception ex) {
-                ex.printStackTrace();
+            } catch (InterruptedException ex) {
+                log.warn("Interrupted while waiting for write closure. Exiting.");
+                Thread.currentThread().interrupt();
                 return false;
             }
         }
