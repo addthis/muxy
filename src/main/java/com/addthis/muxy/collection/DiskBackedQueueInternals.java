@@ -227,14 +227,18 @@ class DiskBackedQueueInternals<E> implements Closeable {
         int count;
 
         Page(long id, InputStream stream) throws IOException {
-            this.id = id;
-            this.elements = new Object[pageSize];
-            this.count = readInt(stream);
-            for (int i = 0; i < count; i++) {
-                elements[i] = serializer.fromInputStream(stream);
+            try {
+                this.id = id;
+                this.elements = new Object[pageSize];
+                this.count = readInt(stream);
+                for (int i = 0; i < count; i++) {
+                    elements[i] = serializer.fromInputStream(stream);
+                }
+                this.readerIndex = 0;
+                this.writerIndex = count;
+            } finally {
+                stream.close();
             }
-            this.readerIndex = 0;
-            this.writerIndex = count;
         }
 
         Page(long id) {
@@ -407,10 +411,10 @@ class DiskBackedQueueInternals<E> implements Closeable {
         NavigableMap<Long,Page> results = new TreeMap<>();
         synchronized (external) {
             for(long i = id; i < (id + count); i++) {
-                WritableMuxFile file = external.openFile(Long.toString(i), false);
-                if (file == null) {
+                if (!external.exists(Long.toString(i))) {
                     return results;
                 }
+                WritableMuxFile file = external.openFile(Long.toString(i), false);
                 Page page = new Page(i, file.read());
                 results.put(i, page);
                 file.delete();

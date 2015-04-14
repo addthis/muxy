@@ -176,7 +176,8 @@ public class TestDiskBackedQueue {
             for (int j = 1; j <= 4; j++) {
                 for (int k = 0; k <= 4; k++) {
                     for (int m = 0; m < SyncMode.values().length; m++ ) {
-                        concurrentReadsWrites(i, j, k, SyncMode.values()[m], 100_000);
+                        // TODO replace with concurrentReadsWrites(i, j, k, SyncMode.values()[m], 100_000);
+                        concurrentReadsWrites(i, j, k, SyncMode.ALWAYS, 100_000);
                     }
                 }
             }
