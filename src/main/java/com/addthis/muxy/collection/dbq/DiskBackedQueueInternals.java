@@ -11,14 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.addthis.muxy.collection;
+package com.addthis.muxy.collection.dbq;
 
 import javax.annotation.concurrent.GuardedBy;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 
 import java.util.Collection;
 import java.util.Map;
@@ -41,19 +39,16 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.nio.file.Path;
 import java.time.Duration;
 
-import com.addthis.muxy.collection.DiskBackedQueue.SyncMode;
 import com.addthis.muxy.MuxFile;
 import com.addthis.muxy.MuxFileDirectory;
 import com.addthis.muxy.MuxyEventListener;
 import com.addthis.muxy.MuxyFileEvent;
 import com.addthis.muxy.MuxyStreamEvent;
 import com.addthis.muxy.WritableMuxFile;
+import com.addthis.muxy.collection.Serializer;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
-import com.google.common.io.ByteStreams;
-import com.google.common.primitives.Ints;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import org.slf4j.Logger;
@@ -71,11 +66,13 @@ class DiskBackedQueueInternals<E> implements Closeable {
 
     private final int maxPages;
 
-    private final SyncMode syncMode;
+    private final int maxDiskPages;
+
+    private final Serializer<E> serializer;
 
     private final Duration terminationWait;
 
-    private final ReentrantLock lock;
+    private final ReentrantLock lock = new ReentrantLock();
 
     /**
      * The mux file where external pages are stored.
@@ -88,19 +85,29 @@ class DiskBackedQueueInternals<E> implements Closeable {
 
     /**
      * Defined as {@code lock.newCondition()}.
+     * Wakes up any readers that are waiting for writers.
      * Is signalled whenever an element is inserted
      * into the queue or when a page is read
      * from disk.
      */
     @GuardedBy("lock")
-    private final Condition notEmpty;
+    private final Condition notEmpty = lock.newCondition();
+
+    /**
+     * Defined as {@code lock.newCondition()}.
+     * Wakes up any writers that are waiting for readers
+     * to catch up. Is signalled whenever the readPage reference
+     * is updated.
+     */
+    @GuardedBy("lock")
+    private final Condition notFull = lock.newCondition();
 
     /**
      * Pages waiting to be evicted to disk. Any page
      * in the disk queue must not referenced by the
      * {@code writePage} or the {@code readPage}.
      */
-    private final ConcurrentSkipListMap<Long, Page> diskQueue;
+    private final ConcurrentSkipListMap<Long, Page<E>> diskQueue;
 
     /**
      * Estimate the current size of the diskQueue.
@@ -112,23 +119,27 @@ class DiskBackedQueueInternals<E> implements Closeable {
      * placed into the {@code readPage}.
      */
     @GuardedBy("lock")
-    private final NavigableMap<Long, Page> readQueue;
+    private final NavigableMap<Long, Page<E>> readQueue = new TreeMap<>();
 
     @GuardedBy("lock")
-    private Page writePage;
+    private Page<E> writePage;
 
     @GuardedBy("lock")
-    private Page readPage;
+    private Page<E> readPage;
 
-    private final AtomicReference<IOException> error;
-
-    private final Serializer<E> serializer;
+    private final AtomicReference<IOException> error = new AtomicReference<>(null);
 
     private final ScheduledExecutorService backgroundTasks;
 
-    private final CompletableFuture<Void> closeFuture;
+    private final CompletableFuture<Void> closeFuture = new CompletableFuture<>();
 
-    private final AtomicBoolean closed;
+    private final AtomicBoolean closed = new AtomicBoolean();
+
+    /**
+     * To prevent a thundering herd of page loads only a single
+     * thread is permitted to load at any time.
+     */
+    private final Semaphore loadPageSemaphore = new Semaphore(1);
 
     /**
      * Use {@link DiskBackedQueue.Builder} to construct a disk-backed queue.
@@ -136,19 +147,14 @@ class DiskBackedQueueInternals<E> implements Closeable {
      * Throws an exception if {@code shutdownHook} is true and the JVM is
      * currently shutting down.
      */
-    DiskBackedQueueInternals(int pageSize, int minPages, int maxPages, int numBackgroundThreads,
-                             SyncMode syncMode, Duration syncInterval,
-                             Path path, Serializer<E> serializer,
+    DiskBackedQueueInternals(int pageSize, int minPages, int maxPages, int maxDiskPages,
+                             int numBackgroundThreads, Path path, Serializer<E> serializer,
                              Duration terminationWait, boolean shutdownHook) throws Exception {
         this.pageSize = pageSize;
         this.maxPages = maxPages;
+        this.maxDiskPages = maxDiskPages;
         this.external = new MuxFileDirectory(path, new NextReadPageListener());
         this.serializer = serializer;
-        this.syncMode = syncMode;
-        this.lock = new ReentrantLock();
-        this.notEmpty = lock.newCondition();
-        this.closeFuture = new CompletableFuture<>();
-        this.closed = new AtomicBoolean();
         this.terminationWait = terminationWait;
         if (maxPages <= 1) {
             this.diskQueue = null;
@@ -160,7 +166,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
             this.diskQueue = new ConcurrentSkipListMap<>();
             this.diskQueueSize = new AtomicInteger();
             this.backgroundTasks = new ScheduledThreadPoolExecutor(
-                    numBackgroundThreads + ((syncMode == SyncMode.PERIODIC) ? 1 : 0),
+                    numBackgroundThreads,
                     new ThreadFactoryBuilder().setNameFormat("disk-backed-queue-writer-%d").build());
             this.minReadPages = Math.max(minPages / 2, 1); // always fetch at least one page
             this.minWritePages = minPages / 2;
@@ -169,15 +175,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
                                                        (1000 * i) / numBackgroundThreads,
                                                        1000, TimeUnit.MILLISECONDS);
             }
-            if (syncMode == SyncMode.PERIODIC) {
-                backgroundTasks.scheduleWithFixedDelay(new DiskSyncTask(),
-                                                       syncInterval.toMillis(),
-                                                       syncInterval.toMillis(),
-                                                       TimeUnit.MILLISECONDS);
-            }
         }
-        this.readQueue = new TreeMap<>();
-        this.error = new AtomicReference<>(null);
         Collection<MuxFile> files = external.listFiles();
         Optional<MuxFile> minFile = files.stream().min((f1, f2) -> (f1.getName().compareTo(f2.getName())));
         Optional<MuxFile> maxFile = files.stream().max((f1, f2) -> (f2.getName().compareTo(f1.getName())));
@@ -185,12 +183,12 @@ class DiskBackedQueueInternals<E> implements Closeable {
             long readPageId, writePageId;
             readPageId  = Long.parseLong(minFile.get().getName());
             writePageId = Long.parseLong(maxFile.get().getName()) + 1;
-            NavigableMap<Long, Page> readPages = readPagesFromExternal(readPageId, minReadPages);
+            NavigableMap<Long, Page<E>> readPages = readPagesFromExternal(readPageId, minReadPages);
             readPage = readPages.remove(readPageId);
             readQueue.putAll(readPages);
-            writePage = new Page(writePageId);
+            writePage = new Page<>(writePageId, pageSize, serializer, external);
         } else {
-            writePage = new Page(0);
+            writePage = new Page<>(0, pageSize, serializer, external);
             readPage = writePage;
         }
         if (shutdownHook) {
@@ -198,149 +196,11 @@ class DiskBackedQueueInternals<E> implements Closeable {
         }
     }
 
-    @VisibleForTesting
-    static int readInt(InputStream stream) throws IOException {
-        byte[] data = new byte[4];
-        ByteStreams.readFully(stream, data);
-        return Ints.fromByteArray(data);
-    }
-
-    @VisibleForTesting
-    static void writeInt(OutputStream stream, int val) throws IOException {
-        byte[] data = Ints.toByteArray(val);
-        stream.write(data);
-    }
-
-    /**
-     * Fixed length circular buffer of elements.
-     */
-    private class Page {
-
-        final long id;
-
-        final Object[] elements;
-
-        int readerIndex;
-
-        int writerIndex;
-
-        int count;
-
-        Page(long id, InputStream stream) throws IOException {
-            try {
-                this.id = id;
-                this.elements = new Object[pageSize];
-                this.count = readInt(stream);
-                for (int i = 0; i < count; i++) {
-                    elements[i] = serializer.fromInputStream(stream);
-                }
-                this.readerIndex = 0;
-                this.writerIndex = count;
-            } finally {
-                stream.close();
-            }
-        }
-
-        Page(long id) {
-            this.id = id;
-            this.elements = new Object[pageSize];
-            this.count = 0;
-            this.readerIndex = 0;
-            this.writerIndex = 0;
-        }
-
-        boolean empty() {
-            return (count == 0);
-        }
-
-        boolean full() {
-            return (count == pageSize);
-        }
-
-        void add(E e) {
-            assert(!full());
-            elements[writerIndex] = e;
-            writerIndex = (writerIndex + 1) % pageSize;
-            count++;
-        }
-
-        void clear() {
-            count = 0;
-            readerIndex = 0;
-            writerIndex = 0;
-        }
-
-        E remove() {
-            assert(!empty());
-            E result = (E) elements[readerIndex];
-            readerIndex = (readerIndex + 1) % pageSize;
-            count--;
-            return result;
-        }
-
-        void writeToFile() throws IOException {
-            assert(!empty());
-            synchronized (external) {
-                WritableMuxFile file = external.openFile(Long.toString(id), true);
-                assert(file.getLength() == 0);
-                OutputStream outputStream = file.append();
-                try {
-                    writeInt(outputStream, count);
-                    for (int i = 0; i < count; i++) {
-                        E next = (E) elements[(readerIndex + i) % pageSize];
-                        serializer.toOutputStream(next, outputStream);
-                    }
-                } finally {
-                    outputStream.close();
-                }
-                if (syncMode == SyncMode.ALWAYS) {
-                    file.sync();
-                }
-            }
-        }
-    }
-
-    private class DiskWriteTask implements Runnable {
-
-        @Override public void run() {
-            while ((getError() == null) && (diskQueueSize.get() > minWritePages)) {
-                try {
-                    Map.Entry<Long,Page> minEntry = diskQueue.pollFirstEntry();
-                    if (minEntry != null) {
-                        diskQueueSize.decrementAndGet();
-                        minEntry.getValue().writeToFile();
-                    } else {
-                        break;
-                    }
-                    if (Thread.interrupted()) {
-                        break;
-                    }
-                } catch (IOException ex) {
-                    setError(ex);
-                }
-            }
-        }
-    }
-
-    private class DiskSyncTask implements Runnable {
-        @Override public void run() {
-            if (getError() != null) {
-                try {
-                    synchronized(external) {
-                        external.sync();
-                    }
-                } catch (IOException ex) {
-                    setError(ex);
-                }
-            }
-        }
-    }
-
-    private boolean drainQueue(NavigableMap<Long,Page> queue, long endTime, boolean diskQueue) throws IOException {
+    private boolean drainQueue(NavigableMap<Long,Page<E>> queue, long endTime, boolean diskQueue) throws IOException {
         if ((endTime > 0) && (System.currentTimeMillis() >= endTime)) {
             return false;
         }
-        Map.Entry<Long,Page> minEntry;
+        Map.Entry<Long,Page<E>> minEntry;
         while ((minEntry = queue.pollFirstEntry()) != null) {
             if (diskQueue) {
                 diskQueueSize.decrementAndGet();
@@ -353,81 +213,21 @@ class DiskBackedQueueInternals<E> implements Closeable {
         return true;
     }
 
-    /**
-     * It is possible that a consumer will be looking for the
-     * next page to read and concurrently a writer will have removed
-     * the page from the disk queue before the consumer checked the queue
-     * and wrote the page to disk after the consumer checked the disk.
-     * This listener will wake up any consumers under those circumstances.
-     */
-    private class NextReadPageListener implements MuxyEventListener {
-
-        @Override public void fileEvent(MuxyFileEvent event, Object target) {
-            if (event != MuxyFileEvent.FILE_CREATE) {
-                return;
-            }
-            /**
-             * This listener is holding the synchronized (external) lock.
-             * To prevent deadlock we acquire the {@code lock} object
-             * in another thread.
-             */
-            CompletableFuture.runAsync(new NextReadPageRunnable(((MuxFile) target).getName()));
-        }
-
-        @Override public void streamEvent(MuxyStreamEvent event, Object target) {}
-
-        @Override public void reportWrite(long bytes) {}
-
-        @Override public void reportStreams(long streams) {}
-    }
-
-    /**
-     * Signal to any outstanding consumers that additional nodes
-     * are available for consuming. Performed in a separate thread
-     * to prevent deadlock.
-     */
-    private class NextReadPageRunnable implements Runnable {
-
-        private final String muxFileName;
-
-        NextReadPageRunnable(String muxFileName) {
-            this.muxFileName = muxFileName;
-        }
-
-        public void run() {
-            lock.lock();
-            try {
-                if (readPage.empty() &&
-                    Long.toString(readPage.id + 1).equals(muxFileName)) {
-                    notEmpty.signalAll();
-                }
-            } finally {
-                lock.unlock();
-            }
-        }
-    }
-
-    private NavigableMap<Long,Page> readPagesFromExternal(long id, int count) throws IOException {
-        NavigableMap<Long,Page> results = new TreeMap<>();
+    private NavigableMap<Long,Page<E>> readPagesFromExternal(long id, int count) throws IOException {
+        NavigableMap<Long,Page<E>> results = new TreeMap<>();
         synchronized (external) {
             for(long i = id; i < (id + count); i++) {
                 if (!external.exists(Long.toString(i))) {
                     return results;
                 }
                 WritableMuxFile file = external.openFile(Long.toString(i), false);
-                Page page = new Page(i, file.read());
+                Page<E> page = new Page<>(i, pageSize, serializer, external, file.read());
                 results.put(i, page);
                 file.delete();
             }
         }
         return results;
     }
-
-    /**
-     * To prevent a thundering herd of page loads only a single
-     * thread is permitted to load at any time.
-     */
-    private final Semaphore loadPageSemaphore = new Semaphore(1);
 
     /**
      * Load a page from the file. Returns true if
@@ -441,7 +241,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
          * the page load semaphore until either we are the winner
          * of the page load semaphore or an element is available.
          */
-        NavigableMap<Long,Page> loadedPages;
+        NavigableMap<Long,Page<E>> loadedPages;
         lock.unlock();
         loadPageSemaphore.acquireUninterruptibly();
         try {
@@ -463,6 +263,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
         }
         if ((nextId == writePage.id) && (readPage != writePage)) {
             readPage = writePage;
+            notFull.signalAll();
             return !readPage.empty();
         }
         return false;
@@ -489,17 +290,18 @@ class DiskBackedQueueInternals<E> implements Closeable {
      * @param diskQueue  if true then update disk queue size
      * @return true if the target page was found
      **/
-    private boolean fetchFromQueue(NavigableMap<Long,Page> queue, long id, boolean diskQueue) {
+    private boolean fetchFromQueue(NavigableMap<Long,Page<E>> queue, long id, boolean diskQueue) {
         assert(lock.isHeldByCurrentThread());
         assert(readPage.empty());
         assert(id == (readPage.id + 1));
-        Page nextPage = queue.remove(id);
+        Page<E> nextPage = queue.remove(id);
         if (nextPage != null) {
             if (diskQueue) {
                 diskQueueSize.decrementAndGet();
             }
             readPage = nextPage;
             notEmpty.signalAll();
+            notFull.signalAll();
             return true;
         } else {
             return false;
@@ -517,7 +319,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
      */
     E get(long timeout, TimeUnit unit) throws InterruptedException, IOException {
         if (closed.get()) {
-            throw new IllegalStateException("attempted get() after close()");
+            throw new IllegalStateException("attempted read after close()");
         }
         propagateError();
         /**
@@ -529,6 +331,9 @@ class DiskBackedQueueInternals<E> implements Closeable {
         lock.lock();
         try {
             while (true) {
+                if (closed.get()) {
+                    throw new IllegalStateException("read did not complete before close()");
+                }
                 long nextId = readPage.id + 1;
                 if (!readPage.empty()) {
                     return readPage.remove();
@@ -536,6 +341,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
                     return readPage.remove();
                 } else if ((nextId == writePage.id) && (readPage != writePage)) {
                     readPage = writePage;
+                    notFull.signalAll();
                 } else if ((nextId < writePage.id) && loadPageFromFile(nextId)) {
                     return readPage.remove();
                 } else if (unit == null) {
@@ -551,51 +357,78 @@ class DiskBackedQueueInternals<E> implements Closeable {
         }
     }
 
+    private void testNotEmpty() {
+        // signal if the new element is the next in FIFO order for the consumers
+        if ((((readPage.id + 1) == writePage.id) && readPage.empty()) ||
+            ((readPage == writePage) && (writePage.count == 1))) {
+            notEmpty.signal();
+        }
+    }
+
     /**
-     * Inserts the specified element into this queue, waiting if necessary
-     * for space to become available.
+     * Inserts the specified element into this queue if it is possible
+     * to do so without violating disk capacity restrictions.
      *
      * @param e the element to add
      * @throws NullPointerException if the specified element is null
      * @throws IllegalArgumentException if some property of the specified
      *         element prevents it from being added to this queue
      * @throws IOException if error reading the backing store
+     * @throws InterruptedException
      */
-    void put(E e) throws IOException {
+    boolean offer(E e, long timeout, TimeUnit unit) throws IOException, InterruptedException {
         if (closed.get()) {
-            throw new IllegalStateException("attempted put() after close()");
+            throw new IllegalStateException("attempted write after close()");
         }
         Preconditions.checkNotNull(e);
         propagateError();
+        /**
+         * Follow example in
+         * https://docs.oracle.com/javase/8/docs/api/java/util/concurrent/locks/Condition.html#awaitNanos-long-
+         * to handle spurious wakeups.
+         */
+        long nanos = (unit == null) ? 0 : unit.toNanos(timeout);
         lock.lock();
         try {
-            if (!writePage.full()) {
-                writePage.add(e);
-            } else {
-                Page oldPage = writePage;
-                writePage = new Page(oldPage.id + 1);
-                writePage.add(e);
-                if (readPage != oldPage) {
-                    if ((diskQueue == null) || (diskQueueSize.get() > maxPages)) {
-                        foregroundWrite(oldPage);
-                    } else {
-                        Page previous = diskQueue.put(oldPage.id, oldPage);
-                        assert(previous == null);
-                        diskQueueSize.incrementAndGet();
-                    }
+            while(true) {
+                if (closed.get()) {
+                    throw new IllegalStateException("write did not complete before close()");
                 }
-            }
-            // signal if the new element is the next in FIFO order for the consumers
-            if ((((readPage.id + 1) == writePage.id) && readPage.empty()) ||
-                ((readPage == writePage) && (writePage.count == 1))) {
-                notEmpty.signal();
+                if (!writePage.full()) {
+                    writePage.add(e);
+                    testNotEmpty();
+                    return true;
+                } else if ((maxDiskPages > 0) && ((writePage.id - readPage.id) >= maxDiskPages)) {
+                    if (unit == null) {
+                        notFull.await();
+                    } else if (nanos <= 0L) {
+                        return false;
+                    } else {
+                        nanos = notFull.awaitNanos(nanos);
+                    }
+                } else {
+                    Page<E> oldPage = writePage;
+                    writePage = new Page<>(oldPage.id + 1, pageSize, serializer, external);
+                    writePage.add(e);
+                    if (readPage != oldPage) {
+                        if ((diskQueue == null) || (diskQueueSize.get() > maxPages)) {
+                            foregroundWrite(oldPage);
+                        } else {
+                            Page previous = diskQueue.put(oldPage.id, oldPage);
+                            assert (previous == null);
+                            diskQueueSize.incrementAndGet();
+                        }
+                    }
+                    testNotEmpty();
+                    return true;
+                }
             }
         } finally {
             lock.unlock();
         }
     }
 
-    private void foregroundWrite(Page page) throws IOException {
+    private void foregroundWrite(Page<E> page) throws IOException {
         assert(lock.isHeldByCurrentThread());
         lock.unlock();
         try {
@@ -705,4 +538,81 @@ class DiskBackedQueueInternals<E> implements Closeable {
         }
         return remaining;
     }
+
+    private class DiskWriteTask implements Runnable {
+
+        @Override public void run() {
+            while ((getError() == null) && (diskQueueSize.get() > minWritePages)) {
+                try {
+                    Map.Entry<Long,Page<E>> minEntry = diskQueue.pollFirstEntry();
+                    if (minEntry != null) {
+                        diskQueueSize.decrementAndGet();
+                        minEntry.getValue().writeToFile();
+                    } else {
+                        break;
+                    }
+                    if (Thread.interrupted()) {
+                        break;
+                    }
+                } catch (IOException ex) {
+                    setError(ex);
+                }
+            }
+        }
+    }
+
+    /**
+     * It is possible that a consumer will be looking for the
+     * next page to read and concurrently a writer will have removed
+     * the page from the disk queue before the consumer checked the queue
+     * and wrote the page to disk after the consumer checked the disk.
+     * This listener will wake up any consumers under those circumstances.
+     */
+    private class NextReadPageListener implements MuxyEventListener {
+
+        @Override public void fileEvent(MuxyFileEvent event, Object target) {
+            if (event != MuxyFileEvent.FILE_CREATE) {
+                return;
+            }
+            /**
+             * This listener is holding the synchronized (external) lock.
+             * To prevent deadlock we acquire the {@code lock} object
+             * in another thread.
+             */
+            CompletableFuture.runAsync(new NextReadPageRunnable(((MuxFile) target).getName()));
+        }
+
+        @Override public void streamEvent(MuxyStreamEvent event, Object target) {}
+
+        @Override public void reportWrite(long bytes) {}
+
+        @Override public void reportStreams(long streams) {}
+    }
+
+    /**
+     * Signal to any outstanding consumers that additional nodes
+     * are available for consuming. Performed in a separate thread
+     * to prevent deadlock.
+     */
+    private class NextReadPageRunnable implements Runnable {
+
+        private final String muxFileName;
+
+        NextReadPageRunnable(String muxFileName) {
+            this.muxFileName = muxFileName;
+        }
+
+        public void run() {
+            lock.lock();
+            try {
+                if (readPage.empty() &&
+                    Long.toString(readPage.id + 1).equals(muxFileName)) {
+                    notEmpty.signalAll();
+                }
+            } finally {
+                lock.unlock();
+            }
+        }
+    }
+
 }

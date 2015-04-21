@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.addthis.muxy.collection;
+package com.addthis.muxy.collection.dbq;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -26,13 +26,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 
-import com.addthis.muxy.collection.DiskBackedQueue.SyncMode;
+import com.addthis.muxy.collection.Serializer;
 
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -46,12 +47,12 @@ public class TestDiskBackedQueue {
 
         @Override public void toOutputStream(String input, OutputStream output) throws IOException {
             byte[] data = input.getBytes();
-            DiskBackedQueueInternals.writeInt(output, data.length);
+            Page.writeInt(output, data.length);
             output.write(data);
         }
 
         @Override public String fromInputStream(InputStream input) throws IOException {
-            int length = DiskBackedQueueInternals.readInt(input);
+            int length = Page.readInt(input);
             byte[] data = new byte[length];
             input.read(data);
             return new String(data);
@@ -65,9 +66,9 @@ public class TestDiskBackedQueue {
         builder.setPageSize(1024);
         builder.setMemMinCapacity(1024);
         builder.setMemMaxCapacity(1024);
+        builder.setDiskMaxCapacity(0);
         builder.setSerializer(serializer);
         builder.setPath(path);
-        builder.setSyncMode(SyncMode.ALWAYS);
         builder.setNumBackgroundThreads(0);
         builder.setTerminationWait(Duration.ofMinutes(2));
         builder.setShutdownHook(false);
@@ -88,9 +89,9 @@ public class TestDiskBackedQueue {
         builder.setPageSize(2);
         builder.setMemMinCapacity(2);
         builder.setMemMaxCapacity(2);
+        builder.setDiskMaxCapacity(0);
         builder.setSerializer(serializer);
         builder.setPath(path);
-        builder.setSyncMode(SyncMode.ALWAYS);
         builder.setNumBackgroundThreads(0);
         builder.setShutdownHook(false);
         builder.setTerminationWait(Duration.ofMinutes(2));
@@ -117,7 +118,7 @@ public class TestDiskBackedQueue {
         builder.setPageSize(2);
         builder.setMemMinCapacity(2);
         builder.setMemMaxCapacity(2);
-        builder.setSyncMode(SyncMode.ALWAYS);
+        builder.setDiskMaxCapacity(0);
         builder.setSerializer(serializer);
         builder.setPath(path);
         builder.setNumBackgroundThreads(0);
@@ -142,15 +143,43 @@ public class TestDiskBackedQueue {
     }
 
     @Test
+    public void maxDiskCapacity() throws Exception {
+        Path path = Files.createTempDirectory("dbq-test");
+        DiskBackedQueue.Builder<String> builder = new DiskBackedQueue.Builder<>();
+        builder.setPageSize(2);
+        builder.setMemMinCapacity(2);
+        builder.setMemMaxCapacity(2);
+        builder.setDiskMaxCapacity(2);
+        builder.setSerializer(serializer);
+        builder.setPath(path);
+        builder.setNumBackgroundThreads(0);
+        builder.setShutdownHook(false);
+        builder.setTerminationWait(Duration.ofMinutes(2));
+        DiskBackedQueue<String> queue = builder.build();
+        assertTrue(queue.offer("hello"));
+        assertTrue(queue.offer("world"));
+        assertTrue(queue.offer("foo"));
+        assertTrue(queue.offer("bar"));
+        assertFalse(queue.offer("baz"));
+        assertEquals("hello", queue.poll());
+        assertEquals("world", queue.poll());
+        assertEquals("foo", queue.poll());
+        assertEquals("bar", queue.poll());
+        assertNull(queue.poll());
+        assertTrue(queue.offer("baz"));
+        queue.close();
+    }
+
+    @Test
     public void closeAndReopen() throws Exception {
         Path path = Files.createTempDirectory("dbq-test");
         DiskBackedQueue.Builder<String> builder = new DiskBackedQueue.Builder<>();
         builder.setPageSize(1024);
         builder.setMemMinCapacity(1024);
         builder.setMemMaxCapacity(1024);
+        builder.setDiskMaxCapacity(0);
         builder.setSerializer(serializer);
         builder.setPath(path);
-        builder.setSyncMode(SyncMode.ALWAYS);
         builder.setNumBackgroundThreads(0);
         builder.setShutdownHook(false);
         builder.setTerminationWait(Duration.ofMinutes(2));
@@ -175,30 +204,24 @@ public class TestDiskBackedQueue {
         for (int i = 1; i <= 4; i++) {
             for (int j = 1; j <= 4; j++) {
                 for (int k = 0; k <= 4; k++) {
-                    for (int m = 0; m < SyncMode.values().length; m++ ) {
-                        // TODO replace with concurrentReadsWrites(i, j, k, SyncMode.values()[m], 100_000);
-                        concurrentReadsWrites(i, j, k, SyncMode.ALWAYS, 100_000);
-                    }
+                    concurrentReadsWrites(i, j, k, 100_000);
                 }
             }
         }
     }
 
     private void concurrentReadsWrites(int numReaders, int numWriters,
-                                       int numBackgroundThreads, SyncMode mode,
+                                       int numBackgroundThreads,
                                        int elements) throws Exception {
         log.info("Testing disk backed queue with {} readers, " +
-                 "{} writers, {} background threads, and {} sync mode",
-                 numReaders, numWriters, numBackgroundThreads, mode);
+                 "{} writers, and {} background threads",
+                 numReaders, numWriters, numBackgroundThreads);
         Path path = Files.createTempDirectory("dbq-test");
         DiskBackedQueue.Builder<String> builder = new DiskBackedQueue.Builder<>();
         builder.setPageSize(32);
         builder.setMemMinCapacity(128);
         builder.setMemMaxCapacity(512);
-        builder.setSyncMode(mode);
-        if (mode == SyncMode.PERIODIC) {
-            builder.setSyncInterval(Duration.ofMillis(500));
-        }
+        builder.setDiskMaxCapacity(0);
         builder.setSerializer(serializer);
         builder.setPath(path);
         builder.setNumBackgroundThreads(numBackgroundThreads);
@@ -254,7 +277,7 @@ public class TestDiskBackedQueue {
                 while ((next = generator.getAndIncrement()) < max) {
                     queue.put(Integer.toString(next));
                 }
-            } catch (IOException ex) {
+            } catch (Exception ex) {
                 fail(ex.toString());
             }
             phaser.arriveAndDeregister();

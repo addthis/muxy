@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.addthis.muxy.collection;
+package com.addthis.muxy.collection.dbq;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -20,6 +20,8 @@ import java.util.concurrent.TimeUnit;
 
 import java.nio.file.Path;
 import java.time.Duration;
+
+import com.addthis.muxy.collection.Serializer;
 
 import com.google.common.base.Preconditions;
 
@@ -44,29 +46,6 @@ public class DiskBackedQueue<E> implements Closeable {
 
     private final DiskBackedQueueInternals<E> queue;
 
-    @SuppressWarnings("unused")
-    public enum SyncMode {
-        /**
-         * Contents of muxy filesystem are synchronized with disk
-         * when the queue is closed. Fastest performance and
-         * weakest data recovery on failure.
-         */
-        NEVER,
-
-        /**
-         * Contents of muxy filesystem are synchronized with disk
-         * periodically by a background thread. Best trade-off
-         * of performance and failure recovery on failure.
-         */
-        PERIODIC,
-
-        /**
-         * Each write to muxy filesystem is synced to disk.
-         * Impacts performance of the data structure.
-         */
-        ALWAYS
-    }
-
     private DiskBackedQueue(DiskBackedQueueInternals<E> queue) {
         this.queue = queue;
     }
@@ -75,11 +54,10 @@ public class DiskBackedQueue<E> implements Closeable {
         private int pageSize = -1;
         private int memMinCapacity = -1;
         private int memMaxCapacity = -1;
+        private int diskMaxCapacity = -1;
         private int numBackgroundThreads = -1;
         private Path path;
         private Serializer<E> serializer;
-        private SyncMode syncMode;
-        private Duration syncInterval;
         private Duration terminationWait;
         private Boolean shutdownHook;
 
@@ -109,12 +87,21 @@ public class DiskBackedQueue<E> implements Closeable {
 
         /**
          * Maximum number of elements that are allowed to be stored
-         * in memory before {@link #put(Object)} operations begin writing
+         * in memory before insertion operations begin writing
          * synchronously to write to disk. The value muse be greater than
          * or equal to memory minimum capacity. This parameter is required.
          */
         public Builder setMemMaxCapacity(int capacity) {
             this.memMaxCapacity = capacity;
+            return this;
+        }
+
+        /**
+         * Maximum number of elements that are allowed to be stored
+         * on disk. Set to 0 to specify no upper bound.
+         */
+        public Builder setDiskMaxCapacity(int capacity) {
+            this.diskMaxCapacity = capacity;
             return this;
         }
 
@@ -132,25 +119,6 @@ public class DiskBackedQueue<E> implements Closeable {
          */
         public Builder setPath(Path path) {
             this.path = path;
-            return this;
-        }
-
-        /**
-         * Filesystem sync mode. See {@link SyncMode}.
-         * {@code SyncMode#PERIODIC} will create an additional
-         * background thread. This parameter is required.
-         */
-        public Builder setSyncMode(SyncMode mode) {
-            this.syncMode = mode;
-            return this;
-        }
-
-        /**
-         * If sync mode if {@link SyncMode#PERIODIC} then this
-         * required field specifies the syncing interval.
-         */
-        public Builder setSyncInterval(Duration interval) {
-            this.syncInterval = interval;
             return this;
         }
 
@@ -185,24 +153,20 @@ public class DiskBackedQueue<E> implements Closeable {
             Preconditions.checkArgument(pageSize > 0, "pageSize must be > 0");
             Preconditions.checkArgument(memMinCapacity > 0, "memMinCapacity must be > 0");
             Preconditions.checkArgument(memMaxCapacity > 0, "memMaxCapacity must be > 0");
+            Preconditions.checkArgument(diskMaxCapacity >= 0, "diskMaxCapacity must be >= 0");
             Preconditions.checkArgument(numBackgroundThreads >= 0, "numBackgroundThreads must be >= 0");
-            Preconditions.checkNotNull(syncMode, "syncMode must be specified");
             Preconditions.checkNotNull(path, "path must be non-null");
             Preconditions.checkNotNull(serializer, "serializer must be non-null");
             Preconditions.checkArgument(memMaxCapacity >= pageSize, "memMaxCapacity must be >= pageSize");
             Preconditions.checkArgument(memMinCapacity <= memMaxCapacity, "memMinCapacity must be <= memMaxCapacity");
             Preconditions.checkNotNull(terminationWait, "terminationWait must be specified");
             Preconditions.checkNotNull(shutdownHook, "shutdownHook usage must be specified");
-            if ((syncMode == SyncMode.PERIODIC) && (syncInterval == null)) {
-                throw new IllegalStateException("syncInterval must be specified for periodic sync mode");
-            } else if ((syncMode != SyncMode.PERIODIC) && (syncInterval != null)) {
-                throw new IllegalStateException("syncInterval cannot be specified for sync mode " + syncMode);
-            }
             return new DiskBackedQueue<>(
                     new DiskBackedQueueInternals<>(pageSize, memMinCapacity / pageSize,
                                                    memMaxCapacity / pageSize,
-                                                   numBackgroundThreads, syncMode, syncInterval,
-                                                   path, serializer, terminationWait, shutdownHook));
+                                                   diskMaxCapacity / pageSize,
+                                                   numBackgroundThreads, path, serializer,
+                                                   terminationWait, shutdownHook));
         }
     }
 
@@ -253,8 +217,22 @@ public class DiskBackedQueue<E> implements Closeable {
     }
 
     /**
-     * Inserts the specified element into this queue, waiting if necessary
-     * for space to become available.
+     * Inserts the specified element into this queue, waiting if necessary for space to become available.
+     *
+     * @param e the element to add
+     * @throws NullPointerException if the specified element is null
+     * @throws IllegalArgumentException if some property of the specified
+     *         element prevents it from being added to this queue
+     * @throws InterruptedException if interrupted while waiting
+     * @throws IOException if error reading the backing store
+     */
+    public void put(E e) throws IOException, InterruptedException {
+        queue.offer(e, 0, null);
+    }
+
+    /**
+     * Inserts the specified element into this queue if it is possible
+     * to do so without violating disk capacity restrictions.
      *
      * @param e the element to add
      * @throws NullPointerException if the specified element is null
@@ -262,8 +240,29 @@ public class DiskBackedQueue<E> implements Closeable {
      *         element prevents it from being added to this queue
      * @throws IOException if error reading the backing store
      */
-    public void put(E e) throws IOException {
-        queue.put(e);
+    public boolean offer(E e) throws IOException {
+        try {
+            return queue.offer(e, 0, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ex) {
+            // This should never happen. The call was nonblocking.
+            throw new IllegalStateException(ex);
+        }
+    }
+
+    /**
+     * Inserts the specified element into this queue, waiting up to the specified
+     * wait time if disk capacity has been exceeded.
+     *
+     * @param e the element to add
+     * @throws NullPointerException if the specified element is null
+     * @throws IllegalArgumentException if some property of the specified
+     *         element prevents it from being added to this queue
+     * @throws InterruptedException if interrupted while waiting
+     * @throws IOException if error reading the backing store
+     */
+    public boolean offer(E e, long timeout, TimeUnit unit) throws IOException, InterruptedException {
+        Preconditions.checkNotNull(unit);
+        return queue.offer(e, timeout, unit);
     }
 
     @Override
