@@ -60,6 +60,7 @@ public class DiskBackedQueue<E> implements Closeable {
         private Serializer<E> serializer;
         private Duration terminationWait;
         private Boolean shutdownHook;
+        private Boolean compress;
 
         // optional
         private boolean silent;
@@ -157,6 +158,11 @@ public class DiskBackedQueue<E> implements Closeable {
             return this;
         }
 
+        public Builder setCompress(boolean compress) {
+            this.compress = compress;
+            return this;
+        }
+
         public DiskBackedQueue<E> build() throws Exception {
             Preconditions.checkArgument(pageSize > 0, "pageSize must be > 0");
             Preconditions.checkArgument(memMinCapacity > 0, "memMinCapacity must be > 0");
@@ -169,12 +175,13 @@ public class DiskBackedQueue<E> implements Closeable {
             Preconditions.checkArgument(memMinCapacity <= memMaxCapacity, "memMinCapacity must be <= memMaxCapacity");
             Preconditions.checkNotNull(terminationWait, "terminationWait must be specified");
             Preconditions.checkNotNull(shutdownHook, "shutdownHook usage must be specified");
+            Preconditions.checkNotNull(compress, "compress usage must be specified");
             return new DiskBackedQueue<>(
                     new DiskBackedQueueInternals<>(pageSize, memMinCapacity / pageSize,
                                                    memMaxCapacity / pageSize,
                                                    diskMaxCapacity / pageSize,
                                                    numBackgroundThreads, path, serializer,
-                                                   terminationWait, shutdownHook, silent));
+                                                   terminationWait, shutdownHook, silent, compress));
         }
     }
 

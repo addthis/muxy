@@ -77,6 +77,8 @@ class DiskBackedQueueInternals<E> implements Closeable {
 
     private final Duration terminationWait;
 
+    private final boolean compress;
+
     private final boolean silent;
 
     private final ReentrantLock lock = new ReentrantLock();
@@ -162,7 +164,8 @@ class DiskBackedQueueInternals<E> implements Closeable {
      */
     DiskBackedQueueInternals(int pageSize, int minPages, int maxPages, int maxDiskPages,
                              int numBackgroundThreads, Path path, Serializer<E> serializer,
-                             Duration terminationWait, boolean shutdownHook, boolean silent) throws Exception {
+                             Duration terminationWait, boolean shutdownHook, boolean silent,
+                             boolean compress) throws Exception {
         this.pageSize = pageSize;
         this.maxPages = maxPages;
         this.maxDiskPages = maxDiskPages;
@@ -170,6 +173,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
         this.serializer = serializer;
         this.terminationWait = terminationWait;
         this.silent = silent;
+        this.compress = compress;
         if (maxPages <= 1) {
             this.diskQueue = null;
             this.diskQueueSize = null;
@@ -200,9 +204,9 @@ class DiskBackedQueueInternals<E> implements Closeable {
             NavigableMap<Long, Page<E>> readPages = readPagesFromExternal(readPageId, minReadPages);
             readPage = readPages.remove(readPageId);
             readQueue.putAll(readPages);
-            writePage = new Page<>(writePageId, pageSize, serializer, external);
+            writePage = new Page<>(writePageId, pageSize, serializer, compress, external);
         } else {
-            writePage = new Page<>(0, pageSize, serializer, external);
+            writePage = new Page<>(0, pageSize, serializer, compress, external);
             readPage = writePage;
             pageCount.set(1);
         }
@@ -237,12 +241,12 @@ class DiskBackedQueueInternals<E> implements Closeable {
                     return results;
                 }
                 WritableMuxFile file = external.openFile(Long.toString(i), false);
-                try (InputStream input = file.read()) {
+                try (InputStream input = file.read(0, compress)) {
                     ByteStreams.copy(input, copyStream);
                 }
                 file.delete();
             }
-            Page<E> page = new Page<>(i, pageSize, serializer, external,
+            Page<E> page = new Page<>(i, pageSize, serializer, compress, external,
                                       new ByteArrayInputStream(copyStream.toByteArray()));
             results.put(i, page);
         }
@@ -432,7 +436,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
                     }
                 } else {
                     Page<E> oldPage = writePage;
-                    writePage = new Page<>(oldPage.id + 1, pageSize, serializer, external);
+                    writePage = new Page<>(oldPage.id + 1, pageSize, serializer, compress, external);
                     writePage.add(e);
                     pageCount.incrementAndGet();
                     if (readPage != oldPage) {

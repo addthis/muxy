@@ -26,6 +26,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 
+import com.addthis.basis.util.LessFiles;
+
 import com.addthis.muxy.collection.Serializer;
 
 import org.junit.Test;
@@ -34,7 +36,6 @@ import org.slf4j.LoggerFactory;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -72,6 +73,7 @@ public class TestDiskBackedQueue {
         builder.setNumBackgroundThreads(0);
         builder.setTerminationWait(Duration.ofMinutes(2));
         builder.setShutdownHook(false);
+        builder.setCompress(true);
         DiskBackedQueue<String> queue = builder.build();
         queue.put("hello");
         queue.put("world");
@@ -80,6 +82,7 @@ public class TestDiskBackedQueue {
         assertNull(queue.poll());
         assertEquals(0, filecount(path));
         queue.close();
+        LessFiles.deleteDir(path.toFile());
     }
 
     @Test
@@ -94,6 +97,7 @@ public class TestDiskBackedQueue {
         builder.setPath(path);
         builder.setNumBackgroundThreads(0);
         builder.setShutdownHook(false);
+        builder.setCompress(true);
         builder.setTerminationWait(Duration.ofMinutes(2));
         DiskBackedQueue<String> queue = builder.build();
         queue.put("hello");
@@ -109,6 +113,7 @@ public class TestDiskBackedQueue {
         assertNull(queue.poll());
         assertEquals(0, filecount(path));
         queue.close();
+        LessFiles.deleteDir(path.toFile());
     }
 
     @Test
@@ -123,6 +128,7 @@ public class TestDiskBackedQueue {
         builder.setPath(path);
         builder.setNumBackgroundThreads(0);
         builder.setShutdownHook(false);
+        builder.setCompress(true);
         builder.setTerminationWait(Duration.ofMinutes(2));
         DiskBackedQueue<String> queue = builder.build();
         queue.put("hello");
@@ -140,6 +146,7 @@ public class TestDiskBackedQueue {
         assertEquals("quux", queue.poll());
         assertNull(queue.poll());
         queue.close();
+        LessFiles.deleteDir(path.toFile());
     }
 
     @Test
@@ -154,6 +161,7 @@ public class TestDiskBackedQueue {
         builder.setPath(path);
         builder.setNumBackgroundThreads(0);
         builder.setShutdownHook(false);
+        builder.setCompress(true);
         builder.setTerminationWait(Duration.ofMinutes(2));
         DiskBackedQueue<String> queue = builder.build();
         assertTrue(queue.offer("hello"));
@@ -168,6 +176,7 @@ public class TestDiskBackedQueue {
         assertNull(queue.poll());
         assertTrue(queue.offer("baz"));
         queue.close();
+        LessFiles.deleteDir(path.toFile());
     }
 
     @Test
@@ -182,6 +191,7 @@ public class TestDiskBackedQueue {
         builder.setPath(path);
         builder.setNumBackgroundThreads(0);
         builder.setShutdownHook(false);
+        builder.setCompress(true);
         builder.setTerminationWait(Duration.ofMinutes(2));
         DiskBackedQueue<String> queue = builder.build();
         queue.put("hello");
@@ -193,6 +203,7 @@ public class TestDiskBackedQueue {
         assertEquals("world", queue.poll());
         assertNull(queue.poll());
         queue.close();
+        LessFiles.deleteDir(path.toFile());
     }
 
     private static int filecount(Path path) {
@@ -226,6 +237,7 @@ public class TestDiskBackedQueue {
         builder.setPath(path);
         builder.setNumBackgroundThreads(numBackgroundThreads);
         builder.setShutdownHook(false);
+        builder.setCompress(true);
         builder.setTerminationWait(Duration.ofMinutes(2));
         DiskBackedQueue<String> queue = builder.build();
         Thread[] readers = new Thread[numReaders];
@@ -235,11 +247,11 @@ public class TestDiskBackedQueue {
         WritersPhaser writersPhaser = new WritersPhaser(finishedWriters);
         ConcurrentHashMap<String, String> values = new ConcurrentHashMap<>();
         for (int i = 0; i < numReaders; i++) {
-            readers[i] = new Thread(new ReaderTask(values, queue, finishedWriters));
+            readers[i] = new Thread(new ReaderTask(values, queue, finishedWriters), "ReaderTask");
             readers[i].start();
         }
         for (int i = 0; i < numWriters; i++) {
-            writers[i] = new Thread(new WriterTask(elements, generator, queue, writersPhaser));
+            writers[i] = new Thread(new WriterTask(elements, generator, queue, writersPhaser), "WriterTask");
             writers[i].start();
         }
         for (int i = 0; i < numWriters; i++) {
@@ -250,6 +262,7 @@ public class TestDiskBackedQueue {
         }
         assertEquals(elements, values.size());
         queue.close();
+        LessFiles.deleteDir(path.toFile());
     }
 
     private static class WriterTask implements Runnable {
@@ -317,17 +330,11 @@ public class TestDiskBackedQueue {
         @Override public void run() {
             try {
                 while (true) {
-                    if (finishedWriters.get()) {
-                        String next = queue.poll();
-                        if (next != null) {
-                            values.put(next, next);
-                        } else {
-                            return;
-                        }
-                    } else {
-                        String next = queue.take();
-                        assertNotNull(next);
+                    String next = queue.poll();
+                    if (next != null) {
                         values.put(next, next);
+                    } else if (finishedWriters.get()) {
+                        return;
                     }
                 }
             } catch (Exception ex) {

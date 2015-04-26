@@ -41,6 +41,8 @@ class Page<E> {
 
     final Serializer<E> serializer;
 
+    final boolean compress;
+
     @GuardedBy("external")
     private final MuxFileDirectory external;
 
@@ -50,12 +52,13 @@ class Page<E> {
 
     int count;
 
-    Page(long id, int pageSize, Serializer<E> serializer, MuxFileDirectory external,
-         InputStream stream) throws IOException {
+    Page(long id, int pageSize, Serializer<E> serializer, boolean compress,
+         MuxFileDirectory external, InputStream stream) throws IOException {
         try {
             this.id = id;
             this.pageSize = pageSize;
             this.serializer = serializer;
+            this.compress = compress;
             this.external = external;
             this.elements = new Object[pageSize];
             this.count = readInt(stream);
@@ -69,10 +72,12 @@ class Page<E> {
         }
     }
 
-    Page(long id, int pageSize, Serializer<E> serializer, MuxFileDirectory external) {
+    Page(long id, int pageSize, Serializer<E> serializer, boolean compress,
+         MuxFileDirectory external) {
         this.id = id;
         this.pageSize = pageSize;
         this.serializer = serializer;
+        this.compress = compress;
         this.external = external;
         this.elements = new Object[pageSize];
         this.count = 0;
@@ -122,7 +127,7 @@ class Page<E> {
         synchronized (external) {
             WritableMuxFile file = external.openFile(Long.toString(id), true);
             assert(file.getLength() == 0);
-            try (OutputStream outputStream = file.append()) {
+            try (OutputStream outputStream = file.append(compress)) {
                 output.writeTo(outputStream);
             } finally {
                 file.sync();
