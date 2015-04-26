@@ -61,6 +61,9 @@ public class DiskBackedQueue<E> implements Closeable {
         private Duration terminationWait;
         private Boolean shutdownHook;
 
+        // optional
+        private boolean silent;
+
         /**
          * Number of elements that are stored per page. Larger
          * pages amortize the cost of writing to disk but very large
@@ -149,6 +152,11 @@ public class DiskBackedQueue<E> implements Closeable {
             return this;
         }
 
+        public Builder setSilent(boolean silence) {
+            this.silent = silence;
+            return this;
+        }
+
         public DiskBackedQueue<E> build() throws Exception {
             Preconditions.checkArgument(pageSize > 0, "pageSize must be > 0");
             Preconditions.checkArgument(memMinCapacity > 0, "memMinCapacity must be > 0");
@@ -166,7 +174,7 @@ public class DiskBackedQueue<E> implements Closeable {
                                                    memMaxCapacity / pageSize,
                                                    diskMaxCapacity / pageSize,
                                                    numBackgroundThreads, path, serializer,
-                                                   terminationWait, shutdownHook));
+                                                   terminationWait, shutdownHook, silent));
         }
     }
 
@@ -217,7 +225,8 @@ public class DiskBackedQueue<E> implements Closeable {
     }
 
     /**
-     * Inserts the specified element into this queue, waiting if necessary for space to become available.
+     * Inserts the specified element into this queue,
+     * waiting if necessary for disk capacity restrictions to be met.
      *
      * @param e the element to add
      * @throws NullPointerException if the specified element is null
@@ -265,8 +274,25 @@ public class DiskBackedQueue<E> implements Closeable {
         return queue.offer(e, timeout, unit);
     }
 
+    /**
+     * Sum of number of pages in memory and number of pages on disk.
+     *
+     * @return current number of pages.
+     */
+    public int pageCount() {
+        return queue.getPageCount();
+    }
+
+    public Path getPath() { return queue.getPath(); }
+
     @Override
     public void close() {
         queue.close();
+    }
+
+    public double fastToSlowWriteRatio() {
+        long fastWrite = queue.getFastWrite();
+        long slowWrite = queue.getSlowWrite();
+        return ((double) fastWrite) / (slowWrite);
     }
 }

@@ -15,6 +15,7 @@ package com.addthis.muxy.collection.dbq;
 
 import javax.annotation.concurrent.GuardedBy;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -112,15 +113,17 @@ class Page<E> {
     @SuppressWarnings("unchecked")
     void writeToFile() throws IOException {
         assert(!empty());
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        writeInt(output, count);
+        for (int i = 0; i < count; i++) {
+            E next = (E) elements[(readerIndex + i) % pageSize];
+            serializer.toOutputStream(next, output);
+        }
         synchronized (external) {
             WritableMuxFile file = external.openFile(Long.toString(id), true);
             assert(file.getLength() == 0);
             try (OutputStream outputStream = file.append()) {
-                writeInt(outputStream, count);
-                for (int i = 0; i < count; i++) {
-                    E next = (E) elements[(readerIndex + i) % pageSize];
-                    serializer.toOutputStream(next, outputStream);
-                }
+                output.writeTo(outputStream);
             } finally {
                 file.sync();
             }

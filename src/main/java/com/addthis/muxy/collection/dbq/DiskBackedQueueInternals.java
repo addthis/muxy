@@ -15,8 +15,11 @@ package com.addthis.muxy.collection.dbq;
 
 import javax.annotation.concurrent.GuardedBy;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.InputStream;
 
 import java.util.Collection;
 import java.util.Map;
@@ -32,6 +35,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
@@ -49,6 +53,7 @@ import com.addthis.muxy.collection.Serializer;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
+import com.google.common.io.ByteStreams;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import org.slf4j.Logger;
@@ -71,6 +76,8 @@ class DiskBackedQueueInternals<E> implements Closeable {
     private final Serializer<E> serializer;
 
     private final Duration terminationWait;
+
+    private final boolean silent;
 
     private final ReentrantLock lock = new ReentrantLock();
 
@@ -135,6 +142,12 @@ class DiskBackedQueueInternals<E> implements Closeable {
 
     private final AtomicBoolean closed = new AtomicBoolean();
 
+    private final AtomicInteger pageCount = new AtomicInteger();
+
+    private final AtomicLong fastWrite = new AtomicLong();
+
+    private final AtomicLong slowWrite = new AtomicLong();
+
     /**
      * To prevent a thundering herd of page loads only a single
      * thread is permitted to load at any time.
@@ -149,13 +162,14 @@ class DiskBackedQueueInternals<E> implements Closeable {
      */
     DiskBackedQueueInternals(int pageSize, int minPages, int maxPages, int maxDiskPages,
                              int numBackgroundThreads, Path path, Serializer<E> serializer,
-                             Duration terminationWait, boolean shutdownHook) throws Exception {
+                             Duration terminationWait, boolean shutdownHook, boolean silent) throws Exception {
         this.pageSize = pageSize;
         this.maxPages = maxPages;
         this.maxDiskPages = maxDiskPages;
         this.external = new MuxFileDirectory(path, new NextReadPageListener());
         this.serializer = serializer;
         this.terminationWait = terminationWait;
+        this.silent = silent;
         if (maxPages <= 1) {
             this.diskQueue = null;
             this.diskQueueSize = null;
@@ -172,8 +186,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
             this.minWritePages = minPages / 2;
             for (int i = 0; i < numBackgroundThreads; i++) {
                 backgroundTasks.scheduleWithFixedDelay(new DiskWriteTask(),
-                                                       (1000 * i) / numBackgroundThreads,
-                                                       1000, TimeUnit.MILLISECONDS);
+                                                       0, 10, TimeUnit.MILLISECONDS);
             }
         }
         Collection<MuxFile> files = external.listFiles();
@@ -183,6 +196,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
             long readPageId, writePageId;
             readPageId  = Long.parseLong(minFile.get().getName());
             writePageId = Long.parseLong(maxFile.get().getName()) + 1;
+            pageCount.set((int) (writePageId - readPageId + 1));
             NavigableMap<Long, Page<E>> readPages = readPagesFromExternal(readPageId, minReadPages);
             readPage = readPages.remove(readPageId);
             readQueue.putAll(readPages);
@@ -190,6 +204,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
         } else {
             writePage = new Page<>(0, pageSize, serializer, external);
             readPage = writePage;
+            pageCount.set(1);
         }
         if (shutdownHook) {
             Runtime.getRuntime().addShutdownHook(new Thread(this::close, "disk-backed-queue-shutdown"));
@@ -215,16 +230,21 @@ class DiskBackedQueueInternals<E> implements Closeable {
 
     private NavigableMap<Long,Page<E>> readPagesFromExternal(long id, int count) throws IOException {
         NavigableMap<Long,Page<E>> results = new TreeMap<>();
-        synchronized (external) {
-            for(long i = id; i < (id + count); i++) {
+        for(long i = id; i < (id + count); i++) {
+            ByteArrayOutputStream copyStream = new ByteArrayOutputStream();
+            synchronized (external) {
                 if (!external.exists(Long.toString(i))) {
                     return results;
                 }
                 WritableMuxFile file = external.openFile(Long.toString(i), false);
-                Page<E> page = new Page<>(i, pageSize, serializer, external, file.read());
-                results.put(i, page);
+                try (InputStream input = file.read()) {
+                    ByteStreams.copy(input, copyStream);
+                }
                 file.delete();
             }
+            Page<E> page = new Page<>(i, pageSize, serializer, external,
+                                      new ByteArrayInputStream(copyStream.toByteArray()));
+            results.put(i, page);
         }
         return results;
     }
@@ -263,6 +283,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
         }
         if ((nextId == writePage.id) && (readPage != writePage)) {
             readPage = writePage;
+            pageCount.set(1);
             notFull.signalAll();
             return !readPage.empty();
         }
@@ -300,6 +321,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
                 diskQueueSize.decrementAndGet();
             }
             readPage = nextPage;
+            pageCount.decrementAndGet();
             notEmpty.signalAll();
             notFull.signalAll();
             return true;
@@ -341,6 +363,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
                     return readPage.remove();
                 } else if ((nextId == writePage.id) && (readPage != writePage)) {
                     readPage = writePage;
+                    pageCount.set(1);
                     notFull.signalAll();
                 } else if ((nextId < writePage.id) && loadPageFromFile(nextId)) {
                     return readPage.remove();
@@ -397,6 +420,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
                 if (!writePage.full()) {
                     writePage.add(e);
                     testNotEmpty();
+                    fastWrite.getAndIncrement();
                     return true;
                 } else if ((maxDiskPages > 0) && ((writePage.id - readPage.id) >= maxDiskPages)) {
                     if (unit == null) {
@@ -410,13 +434,16 @@ class DiskBackedQueueInternals<E> implements Closeable {
                     Page<E> oldPage = writePage;
                     writePage = new Page<>(oldPage.id + 1, pageSize, serializer, external);
                     writePage.add(e);
+                    pageCount.incrementAndGet();
                     if (readPage != oldPage) {
                         if ((diskQueue == null) || (diskQueueSize.get() > maxPages)) {
                             foregroundWrite(oldPage);
+                            slowWrite.getAndIncrement();
                         } else {
                             Page previous = diskQueue.put(oldPage.id, oldPage);
                             assert (previous == null);
                             diskQueueSize.incrementAndGet();
+                            fastWrite.getAndIncrement();
                         }
                     }
                     testNotEmpty();
@@ -461,7 +488,10 @@ class DiskBackedQueueInternals<E> implements Closeable {
                 if (backgroundTasks != null) {
                     backgroundTasks.shutdown();
                     try {
-                        log.info("Waiting on background threads to write approximately {} pages", diskQueueSize.get());
+                        if (!silent) {
+                            log.info("Waiting on background threads to write approximately {} pages",
+                                     diskQueueSize.get());
+                        }
                         backgroundTasks.awaitTermination(terminationWait.toMillis(), TimeUnit.MILLISECONDS);
                     } catch (InterruptedException ex) {
                         closeFuture.completeExceptionally(ex);
@@ -471,7 +501,9 @@ class DiskBackedQueueInternals<E> implements Closeable {
                     }
                 }
                 int unwritten = calculateDirtyPageCount();
-                log.info("Foreground thread must write approximately {} pages", unwritten);
+                if (!silent) {
+                    log.info("Foreground thread must write approximately {} pages", unwritten);
+                }
                 boolean hasTime = (System.currentTimeMillis() < endTime);
                 if (hasTime && !readPage.empty()) {
                     lock.lock();
@@ -526,6 +558,16 @@ class DiskBackedQueueInternals<E> implements Closeable {
             }
         }
     }
+
+    public int getPageCount() {
+        return pageCount.get();
+    }
+
+    public Path getPath() { return external.getDirectory(); }
+
+    public long getFastWrite() { return fastWrite.get(); }
+
+    public long getSlowWrite() { return slowWrite.get(); }
 
     private int calculateDirtyPageCount() {
         int remaining = (readPage.empty() ? 0 : 1);
