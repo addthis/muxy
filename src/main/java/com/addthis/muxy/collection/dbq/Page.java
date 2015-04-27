@@ -13,6 +13,8 @@
  */
 package com.addthis.muxy.collection.dbq;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
 
 import java.io.ByteArrayOutputStream;
@@ -33,9 +35,19 @@ import com.google.common.primitives.Ints;
  */
 class Page<E> {
 
+    private static class ObjectByteArrayPair<E> {
+        @Nonnull final E value;
+        @Nullable final byte[] bytearray;
+
+        ObjectByteArrayPair(@Nonnull E value, @Nullable byte[] bytearray) {
+            this.value = value;
+            this.bytearray = bytearray;
+        }
+    }
+
     final long id;
 
-    final Object[] elements;
+    final ObjectByteArrayPair[] elements;
 
     final int pageSize;
 
@@ -60,10 +72,11 @@ class Page<E> {
             this.serializer = serializer;
             this.compress = compress;
             this.external = external;
-            this.elements = new Object[pageSize];
+            this.elements = new ObjectByteArrayPair[pageSize];
             this.count = readInt(stream);
             for (int i = 0; i < count; i++) {
-                elements[i] = serializer.fromInputStream(stream);
+                ObjectByteArrayPair<E> pair = new ObjectByteArrayPair<>(serializer.fromInputStream(stream), null);
+                elements[i] = pair;
             }
             this.readerIndex = 0;
             this.writerIndex = count;
@@ -79,7 +92,7 @@ class Page<E> {
         this.serializer = serializer;
         this.compress = compress;
         this.external = external;
-        this.elements = new Object[pageSize];
+        this.elements = new ObjectByteArrayPair[pageSize];
         this.count = 0;
         this.readerIndex = 0;
         this.writerIndex = 0;
@@ -93,9 +106,9 @@ class Page<E> {
         return (count == pageSize);
     }
 
-    void add(E e) {
+    void add(E e, byte[] bytearray) {
         assert(!full());
-        elements[writerIndex] = e;
+        elements[writerIndex] = new ObjectByteArrayPair<>(e, bytearray);
         writerIndex = (writerIndex + 1) % pageSize;
         count++;
     }
@@ -106,23 +119,25 @@ class Page<E> {
         writerIndex = 0;
     }
 
-    @SuppressWarnings("unchecked")
     E remove() {
         assert(!empty());
-        E result = (E) elements[readerIndex];
+        ObjectByteArrayPair<E> result = elements[readerIndex];
         readerIndex = (readerIndex + 1) % pageSize;
         count--;
-        return result;
+        return result.value;
     }
 
-    @SuppressWarnings("unchecked")
     void writeToFile() throws IOException {
         assert(!empty());
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         writeInt(output, count);
         for (int i = 0; i < count; i++) {
-            E next = (E) elements[(readerIndex + i) % pageSize];
-            serializer.toOutputStream(next, output);
+            ObjectByteArrayPair<E> next = elements[(readerIndex + i) % pageSize];
+            if (next.bytearray != null) {
+                output.write(next.bytearray);
+            } else {
+                serializer.toOutputStream(next.value, output);
+            }
         }
         synchronized (external) {
             WritableMuxFile file = external.openFile(Long.toString(id), true);

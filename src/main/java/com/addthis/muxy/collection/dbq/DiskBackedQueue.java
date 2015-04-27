@@ -13,6 +13,9 @@
  */
 package com.addthis.muxy.collection.dbq;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
 import java.io.Closeable;
 import java.io.IOException;
 
@@ -28,7 +31,7 @@ import com.google.common.base.Preconditions;
 /**
  * Thread-safe FIFO queue that uses a muxy filesystem to
  * write overflow elements to disk. If memory capacity is not exceeded
- * then all operations occur in memory. {@link #put(Object)}
+ * then all operations occur in memory. {@link #put(Object, byte[])}
  * requests are designed to return quickly and write to disk
  * asynchronously if one or more background threads have been configured.
  * All requests of the {@link DiskBackedQueueInternals#get(long, TimeUnit)}
@@ -61,6 +64,7 @@ public class DiskBackedQueue<E> implements Closeable {
         private Duration terminationWait;
         private Boolean shutdownHook;
         private Boolean compress;
+        private Boolean memoryDouble;
 
         // optional
         private boolean silent;
@@ -102,7 +106,7 @@ public class DiskBackedQueue<E> implements Closeable {
 
         /**
          * Maximum number of elements that are allowed to be stored
-         * on disk. Set to 0 to specify no upper bound.
+         * on disk. Set to 0 to specify no upper bound. This parameter is required.
          */
         public Builder setDiskMaxCapacity(int capacity) {
             this.diskMaxCapacity = capacity;
@@ -137,7 +141,7 @@ public class DiskBackedQueue<E> implements Closeable {
 
         /**
          * Time interval to wait for any outstanding writes to be
-         * flushed to disk when queue is closed. This field is required.
+         * flushed to disk when queue is closed. This parameter is required.
          */
         public Builder setTerminationWait(Duration wait) {
             this.terminationWait = wait;
@@ -147,19 +151,40 @@ public class DiskBackedQueue<E> implements Closeable {
         /**
          * Whether or not to create a shutdown hook that will
          * close the disk backed queue on JVM shutdown.
+         * This parameter is required.
          */
         public Builder setShutdownHook(boolean hook) {
             this.shutdownHook = hook;
             return this;
         }
 
-        public Builder setSilent(boolean silence) {
-            this.silent = silence;
+        /**
+         * If true then enable gzip compression of the external storage.
+         * This parameter is required.
+         */
+        public Builder setCompress(boolean compress) {
+            this.compress = compress;
             return this;
         }
 
-        public Builder setCompress(boolean compress) {
-            this.compress = compress;
+        /**
+         * If true then store the serialized representation of objects
+         * along with the objects themselves. This improves
+         * disk-writing performance at the cost of additional memory overhead.
+         * This parameter is required.
+         */
+        public Builder setMemoryDouble(boolean enable) {
+            this.memoryDouble = enable;
+            return this;
+        }
+
+        /**
+         * If true then do not print informational log messages.
+         * Convenience method the same functionality can be
+         * configured from the logger. This parameter is optional.
+         */
+        public Builder setSilent(boolean silence) {
+            this.silent = silence;
             return this;
         }
 
@@ -176,12 +201,13 @@ public class DiskBackedQueue<E> implements Closeable {
             Preconditions.checkNotNull(terminationWait, "terminationWait must be specified");
             Preconditions.checkNotNull(shutdownHook, "shutdownHook usage must be specified");
             Preconditions.checkNotNull(compress, "compress usage must be specified");
+            Preconditions.checkNotNull(memoryDouble, "memory doubling usage must be specified");
             return new DiskBackedQueue<>(
                     new DiskBackedQueueInternals<>(pageSize, memMinCapacity / pageSize,
                                                    memMaxCapacity / pageSize,
                                                    diskMaxCapacity / pageSize,
                                                    numBackgroundThreads, path, serializer,
-                                                   terminationWait, shutdownHook, silent, compress));
+                                                   terminationWait, shutdownHook, silent, compress, memoryDouble));
         }
     }
 
@@ -234,31 +260,35 @@ public class DiskBackedQueue<E> implements Closeable {
     /**
      * Inserts the specified element into this queue,
      * waiting if necessary for disk capacity restrictions to be met.
+     * The {@code data} parameter is ignored if memory doubling is disabled.
      *
      * @param e the element to add
+     * @param data optionally specify the serialized representation of e
      * @throws NullPointerException if the specified element is null
      * @throws IllegalArgumentException if some property of the specified
      *         element prevents it from being added to this queue
      * @throws InterruptedException if interrupted while waiting
      * @throws IOException if error reading the backing store
      */
-    public void put(E e) throws IOException, InterruptedException {
-        queue.offer(e, 0, null);
+    public void put(@Nonnull E e, @Nullable byte[] data) throws IOException, InterruptedException {
+        queue.offer(e, data, 0, null);
     }
 
     /**
      * Inserts the specified element into this queue if it is possible
      * to do so without violating disk capacity restrictions.
+     * The {@code data} parameter is ignored if memory doubling is disabled.
      *
      * @param e the element to add
+     * @param data optionally specify the serialized representation of e
      * @throws NullPointerException if the specified element is null
      * @throws IllegalArgumentException if some property of the specified
      *         element prevents it from being added to this queue
      * @throws IOException if error reading the backing store
      */
-    public boolean offer(E e) throws IOException {
+    public boolean offer(@Nonnull E e, @Nullable byte[] data) throws IOException {
         try {
-            return queue.offer(e, 0, TimeUnit.MILLISECONDS);
+            return queue.offer(e, data, 0, TimeUnit.MILLISECONDS);
         } catch (InterruptedException ex) {
             // This should never happen. The call was nonblocking.
             throw new IllegalStateException(ex);
@@ -267,18 +297,21 @@ public class DiskBackedQueue<E> implements Closeable {
 
     /**
      * Inserts the specified element into this queue, waiting up to the specified
-     * wait time if disk capacity has been exceeded.
+     * wait time if disk capacity has been exceeded. The {@code data} parameter is
+     * ignored if memory doubling is disabled.
      *
      * @param e the element to add
+     * @param data optionally specify the serialized representation of e
      * @throws NullPointerException if the specified element is null
      * @throws IllegalArgumentException if some property of the specified
      *         element prevents it from being added to this queue
      * @throws InterruptedException if interrupted while waiting
      * @throws IOException if error reading the backing store
      */
-    public boolean offer(E e, long timeout, TimeUnit unit) throws IOException, InterruptedException {
+    public boolean offer(@Nonnull E e, @Nullable byte[] data, long timeout, TimeUnit unit) throws IOException,
+                                                                                                  InterruptedException {
         Preconditions.checkNotNull(unit);
-        return queue.offer(e, timeout, unit);
+        return queue.offer(e, data, timeout, unit);
     }
 
     /**

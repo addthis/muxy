@@ -74,9 +74,10 @@ public class TestDiskBackedQueue {
         builder.setTerminationWait(Duration.ofMinutes(2));
         builder.setShutdownHook(false);
         builder.setCompress(true);
+        builder.setMemoryDouble(false);
         DiskBackedQueue<String> queue = builder.build();
-        queue.put("hello");
-        queue.put("world");
+        queue.put("hello", null);
+        queue.put("world", null);
         assertEquals("hello", queue.poll());
         assertEquals("world", queue.poll());
         assertNull(queue.poll());
@@ -98,12 +99,13 @@ public class TestDiskBackedQueue {
         builder.setNumBackgroundThreads(0);
         builder.setShutdownHook(false);
         builder.setCompress(true);
+        builder.setMemoryDouble(false);
         builder.setTerminationWait(Duration.ofMinutes(2));
         DiskBackedQueue<String> queue = builder.build();
-        queue.put("hello");
-        queue.put("world");
-        queue.put("foo");
-        queue.put("barbaz");
+        queue.put("hello", null);
+        queue.put("world", null);
+        queue.put("foo", null);
+        queue.put("barbaz", null);
         // we cannot serialize a page that is referenced by the readPage
         assertEquals(0, filecount(path));
         assertEquals("hello", queue.poll());
@@ -129,14 +131,15 @@ public class TestDiskBackedQueue {
         builder.setNumBackgroundThreads(0);
         builder.setShutdownHook(false);
         builder.setCompress(true);
+        builder.setMemoryDouble(false);
         builder.setTerminationWait(Duration.ofMinutes(2));
         DiskBackedQueue<String> queue = builder.build();
-        queue.put("hello");
-        queue.put("world");
-        queue.put("foo");
-        queue.put("bar");
-        queue.put("baz");
-        queue.put("quux");
+        queue.put("hello", null);
+        queue.put("world", null);
+        queue.put("foo", null);
+        queue.put("bar", null);
+        queue.put("baz", null);
+        queue.put("quux", null);
         assertTrue(filecount(path) > 0);
         assertEquals("hello", queue.poll());
         assertEquals("world", queue.poll());
@@ -162,19 +165,20 @@ public class TestDiskBackedQueue {
         builder.setNumBackgroundThreads(0);
         builder.setShutdownHook(false);
         builder.setCompress(true);
+        builder.setMemoryDouble(false);
         builder.setTerminationWait(Duration.ofMinutes(2));
         DiskBackedQueue<String> queue = builder.build();
-        assertTrue(queue.offer("hello"));
-        assertTrue(queue.offer("world"));
-        assertTrue(queue.offer("foo"));
-        assertTrue(queue.offer("bar"));
-        assertFalse(queue.offer("baz"));
+        assertTrue(queue.offer("hello", null));
+        assertTrue(queue.offer("world", null));
+        assertTrue(queue.offer("foo", null));
+        assertTrue(queue.offer("bar", null));
+        assertFalse(queue.offer("baz", null));
         assertEquals("hello", queue.poll());
         assertEquals("world", queue.poll());
         assertEquals("foo", queue.poll());
         assertEquals("bar", queue.poll());
         assertNull(queue.poll());
-        assertTrue(queue.offer("baz"));
+        assertTrue(queue.offer("baz", null));
         queue.close();
         LessFiles.deleteDir(path.toFile());
     }
@@ -192,10 +196,11 @@ public class TestDiskBackedQueue {
         builder.setNumBackgroundThreads(0);
         builder.setShutdownHook(false);
         builder.setCompress(true);
+        builder.setMemoryDouble(false);
         builder.setTerminationWait(Duration.ofMinutes(2));
         DiskBackedQueue<String> queue = builder.build();
-        queue.put("hello");
-        queue.put("world");
+        queue.put("hello", null);
+        queue.put("world", null);
         queue.close();
         assertTrue(filecount(path) > 0);
         queue = builder.build();
@@ -238,6 +243,7 @@ public class TestDiskBackedQueue {
         builder.setNumBackgroundThreads(numBackgroundThreads);
         builder.setShutdownHook(false);
         builder.setCompress(true);
+        builder.setMemoryDouble(false);
         builder.setTerminationWait(Duration.ofMinutes(2));
         DiskBackedQueue<String> queue = builder.build();
         Thread[] readers = new Thread[numReaders];
@@ -288,7 +294,7 @@ public class TestDiskBackedQueue {
             int next;
             try {
                 while ((next = generator.getAndIncrement()) < max) {
-                    queue.put(Integer.toString(next));
+                    queue.put(Integer.toString(next), null);
                 }
             } catch (Exception ex) {
                 fail(ex.toString());

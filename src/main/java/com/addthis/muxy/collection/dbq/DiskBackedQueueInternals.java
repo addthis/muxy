@@ -81,6 +81,8 @@ class DiskBackedQueueInternals<E> implements Closeable {
 
     private final boolean silent;
 
+    private final boolean memoryDouble;
+
     private final ReentrantLock lock = new ReentrantLock();
 
     /**
@@ -165,7 +167,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
     DiskBackedQueueInternals(int pageSize, int minPages, int maxPages, int maxDiskPages,
                              int numBackgroundThreads, Path path, Serializer<E> serializer,
                              Duration terminationWait, boolean shutdownHook, boolean silent,
-                             boolean compress) throws Exception {
+                             boolean compress, boolean memoryDouble) throws Exception {
         this.pageSize = pageSize;
         this.maxPages = maxPages;
         this.maxDiskPages = maxDiskPages;
@@ -174,6 +176,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
         this.terminationWait = terminationWait;
         this.silent = silent;
         this.compress = compress;
+        this.memoryDouble = memoryDouble;
         if (maxPages <= 1) {
             this.diskQueue = null;
             this.diskQueueSize = null;
@@ -397,13 +400,14 @@ class DiskBackedQueueInternals<E> implements Closeable {
      * to do so without violating disk capacity restrictions.
      *
      * @param e the element to add
+     * @param bytearray optionally specify the serialized representation of e
      * @throws NullPointerException if the specified element is null
      * @throws IllegalArgumentException if some property of the specified
      *         element prevents it from being added to this queue
      * @throws IOException if error reading the backing store
      * @throws InterruptedException
      */
-    boolean offer(E e, long timeout, TimeUnit unit) throws IOException, InterruptedException {
+    boolean offer(E e, byte[] bytearray, long timeout, TimeUnit unit) throws IOException, InterruptedException {
         if (closed.get()) {
             throw new IllegalStateException("attempted write after close()");
         }
@@ -422,7 +426,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
                     throw new IllegalStateException("write did not complete before close()");
                 }
                 if (!writePage.full()) {
-                    writePage.add(e);
+                    writePage.add(e, memoryDouble ? bytearray : null);
                     testNotEmpty();
                     fastWrite.getAndIncrement();
                     return true;
@@ -437,7 +441,7 @@ class DiskBackedQueueInternals<E> implements Closeable {
                 } else {
                     Page<E> oldPage = writePage;
                     writePage = new Page<>(oldPage.id + 1, pageSize, serializer, compress, external);
-                    writePage.add(e);
+                    writePage.add(e, memoryDouble ? bytearray : null);
                     pageCount.incrementAndGet();
                     if (readPage != oldPage) {
                         if ((diskQueue == null) || (diskQueueSize.get() > maxPages)) {
