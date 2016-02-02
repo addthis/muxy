@@ -50,9 +50,9 @@
 
   <dependencies>
     <dependency>
-      <groupId>com.addthis</groupId>
-      <artifactId>basis</artifactId>
-      <version>3.0.4</version>
+      <groupId>com.addthis.basis</groupId>
+      <artifactId>basis-core</artifactId>
+      <version>4.0.2</version>
     </dependency>
     <dependency>
       <groupId>com.google.guava</groupId>
