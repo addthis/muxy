@@ -18,6 +18,8 @@ import javax.annotation.concurrent.GuardedBy;
 import java.io.IOException;
 import java.io.OutputStream;
 
+import java.nio.file.attribute.FileAttribute;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -63,6 +65,8 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
     // current downstream use has far more tiny directories and streams than I imagined. So for now at least
     // we will use a small default and let the more common large-buffer case pay the price.
     private static final int BUFFER_MIN_SIZE = Integer.getInteger("muxy.buffer.min", 511);
+    private static final String DATA_FILE_PERMISSIONS = System.getProperty("muxy.data.file.permissions", "rw-rw-r--");
+    public static final FileAttribute<?> DATA_FILE_ATTRIBUTES = PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(DATA_FILE_PERMISSIONS));
 
     /* openWritesLock also acts as a barrier for all writing threads when global updates happen */
     protected final ReentrantLock openWritesLock = new ReentrantLock();
@@ -157,7 +161,7 @@ public class MuxStreamDirectory extends ReadMuxStreamDirectory {
      * must be called with write lock held and in a sync block on openStreamWrites
      */
     protected void compactMetaLog() throws IOException {
-        Path tmpLog = Files.createTempFile(streamDirectory, dirDataFile.getFileName().toString(), ".tmp");
+        Path tmpLog = Files.createTempFile(streamDirectory, dirDataFile.getFileName().toString(), ".tmp", DATA_FILE_ATTRIBUTES);
         OutputStream out = Files.newOutputStream(tmpLog);
         for (MuxStream meta : streamDirectoryMap.values()) {
             meta.write(out);

@@ -240,7 +240,7 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
     }
 
     private synchronized void compactMetaLog() throws IOException {
-        Path tmpLog = Files.createTempFile(streamDirectory, fileMetaLog.getFileName().toString(), ".tmp");
+        Path tmpLog = Files.createTempFile(streamDirectory, fileMetaLog.getFileName().toString(), ".tmp", MuxStreamDirectory.DATA_FILE_ATTRIBUTES);
         OutputStream out = Files.newOutputStream(tmpLog);
         for (MuxFile meta : fileMap.values()) {
             meta.writeRecord(out);
