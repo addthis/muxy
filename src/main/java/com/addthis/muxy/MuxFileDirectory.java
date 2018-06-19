@@ -36,7 +36,7 @@ import com.addthis.basis.util.LessBytes;
 import com.addthis.basis.util.JitterClock;
 import com.addthis.basis.util.Parameter;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -432,7 +432,7 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
 
         @Override
         public String toString() {
-            return Objects.toStringHelper(this)
+            return MoreObjects.toStringHelper(this)
                     .add("meta", meta)
                     .add("currentStream", currentStream)
                     .add("lastGlobalBytes", lastGlobalBytes)

@@ -36,7 +36,7 @@ import java.text.DecimalFormat;
 
 import com.addthis.basis.util.Parameter;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.Histogram;
@@ -155,7 +155,7 @@ public class ReadMuxStreamDirectory {
             blockSize.update(currentBlockSize);
             if (currentBlockSize < tiny_block) {
                 log.info("Tiny block debug log");
-                log.info(Objects.toStringHelper("block")
+                log.info(MoreObjects.toStringHelper("block")
                                 .add("block", fileBlocks)
                                 .add("chunks", countIDs)
                                 .add("size", currentBlockSize)

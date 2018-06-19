@@ -26,7 +26,7 @@ import java.util.stream.IntStream;
 
 import com.addthis.basis.util.LessBytes;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Throwables;
 
 public abstract class AbstractMuxFile implements MuxFile {
@@ -121,7 +121,7 @@ public abstract class AbstractMuxFile implements MuxFile {
     }
 
     @Override public String toString() {
-        return Objects.toStringHelper(this)
+        return MoreObjects.toStringHelper(this)
                       .add("fileId", fileId)
                       .add("fileName", fileName)
                       .add("length", length)
@@ -131,7 +131,7 @@ public abstract class AbstractMuxFile implements MuxFile {
     }
 
     @Override public String detail() throws IOException {
-        return Objects.toStringHelper(this)
+        return MoreObjects.toStringHelper(this)
                       .add("fileId", fileId)
                       .add("fileName", fileName)
                       .add("length", length)
