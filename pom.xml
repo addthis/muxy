@@ -16,7 +16,7 @@
   <parent>
     <groupId>com.addthis.common.build.maven.pom</groupId>
     <artifactId>jar-pom</artifactId>
-    <version>3.2.1</version>
+    <version>3.9.1</version>
   </parent>
 
   <properties>
@@ -52,7 +52,7 @@
     <dependency>
       <groupId>com.addthis.basis</groupId>
       <artifactId>basis-core</artifactId>
-      <version>4.0.2</version>
+      <version>4.3.1</version>
     </dependency>
     <dependency>
       <groupId>com.google.guava</groupId>

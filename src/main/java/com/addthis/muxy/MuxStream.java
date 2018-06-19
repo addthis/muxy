@@ -24,7 +24,7 @@ import java.nio.file.Path;
 
 import com.addthis.basis.util.LessBytes;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 /* meta data for start/end of a stream */
 public class MuxStream {
@@ -105,7 +105,7 @@ public class MuxStream {
 
     @Override
     public String toString() {
-        return Objects.toStringHelper(this)
+        return MoreObjects.toStringHelper(this)
                       .add("streamId", streamId)
                       .add("bytes", bytes)
                       .add("startFile", startFile)
