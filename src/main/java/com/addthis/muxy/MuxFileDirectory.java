@@ -239,6 +239,10 @@ public class MuxFileDirectory extends ReadMuxFileDirectory {
         return (MuxStreamDirectory) streamMux;
     }
 
+    public void sync() throws IOException {
+        getStreamManager().writeStreamsToBlock();
+    }
+
     private synchronized void compactMetaLog() throws IOException {
         Path tmpLog = Files.createTempFile(streamDirectory, fileMetaLog.getFileName().toString(), ".tmp", MuxStreamDirectory.DATA_FILE_ATTRIBUTES);
         OutputStream out = Files.newOutputStream(tmpLog);
